@@ -1,0 +1,60 @@
+# Core Libraries for Machine Learning
+tensorflow-gpu==2.11.0 # TensorFlow for deep learning
+tensorflow_addons
+keras                 # Keras integrated with TensorFlow
+vit-keras            # Vision Transformer models
+torch                 # PyTorch for deep learning
+torchvision          # PyTorch computer vision library
+transformers        # Hugging Face Transformers for NLP
+timm               # PyTorch Image Models for computer vision
+numpy               # Numerical operations
+pandas              # Data manipulation and analysis
+
+# Image and Video Processing
+opencv-python       # Image and video processing
+pillow              # Image processing and manipulation
+ffmpeg-python       # Video processing using FFmpeg
+
+# Data donwload, Environment and Configuration Management
+python-dotenv       # Environment variables management
+dvc                 # Data Version Control for pipeline versioning
+requests            # HTTP requests for APIs and web scraping
+gdown               # download gdrive files
+
+# Machine Learning Workflow and Model Management
+mlflow              # Experiment tracking and model management
+joblib              # Saving models and parallel processing
+pydantic            # Data validation for FastAPI
+python-multipart    # Handling multipart/form-data in FastAPI
+tqdm                # Progress bars in loops
+pyYAML              # YAML configuration files
+
+# Testing and Model Explainability
+pytest              # Testing framework
+h5py                # Handling HDF5 files for large datasets
+shap                # SHAP values for model explainability
+lime                # LIME for model explainability
+
+# Web Frameworks and APIs
+fastapi             # FastAPI for building APIs
+uvicorn             # ASGI server for FastAPI
+streamlit           # Building interactive web apps
+gradio              # Web UIs for ML models
+
+# Development and Code Quality
+black               # Code formatting
+flake8              # Linting
+pylint              # Code quality checking
+bandit              # Security linting
+nbqa                # Running code quality checks on Jupyter notebooks
+
+# Visualization and Jupyter Tools
+plotly              # Interactive visualizations
+ipywidgets          # Interactive widgets in Jupyter notebooks
+jupyter             # Jupyter notebooks
+notebook            # Running Jupyter notebooks
+
+# Project-Specific Utilities
+python-box          # Easier handling of nested dictionaries
+ensure              # function signature annotations
+-e .                # Install the package in editable mode

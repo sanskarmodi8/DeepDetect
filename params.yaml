@@ -1,0 +1,13 @@
+# preprocessing
+max_frames: 32
+target_size: [224, 224]
+scale_factor: 1.1
+min_neighbors: 5
+min_size: [30,30]
+incremental_save_frequency: 32
+
+# training
+input_shape: [224, 224, 3]
+learning_rate: 0.001
+batch_size: 16
+epochs: 5
