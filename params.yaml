@@ -1,5 +1,6 @@
 # preprocessing
-max_frames: 32
+max_frames: 100
+scene_change_threshold: 0.4
 target_size: [224, 224]
 scale_factor: 1.1
 min_neighbors: 5

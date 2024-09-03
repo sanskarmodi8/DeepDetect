@@ -1,14 +1,16 @@
-import os
-from box.exceptions import BoxValueError
-import yaml
-from DeepfakeDetection import logger
 import json
-import h5py
-import numpy as np
-from ensure import ensure_annotations
-from box import ConfigBox
+import os
 from pathlib import Path
 from typing import Any
+
+import h5py
+import numpy as np
+import yaml
+from box import ConfigBox
+from box.exceptions import BoxValueError
+from ensure import ensure_annotations
+
+from DeepfakeDetection import logger
 
 
 @ensure_annotations

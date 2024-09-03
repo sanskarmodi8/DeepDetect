@@ -1,14 +1,16 @@
-from DeepfakeDetection import logger
 import os
-from DeepfakeDetection.entity.config_entity import ModelEvaluationConfig
-from DeepfakeDetection.utils.common import save_json, load_h5py
-import tensorflow as tf
+from pathlib import Path
+
 import mlflow
 import mlflow.tensorflow
-from sklearn.metrics import classification_report, accuracy_score, roc_auc_score
 import numpy as np
-from pathlib import Path
+import tensorflow as tf
 from dotenv import load_dotenv
+from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
+
+from DeepfakeDetection import logger
+from DeepfakeDetection.entity.config_entity import ModelEvaluationConfig
+from DeepfakeDetection.utils.common import load_h5py, save_json
 
 # Load environment variables from the .env file
 load_dotenv()

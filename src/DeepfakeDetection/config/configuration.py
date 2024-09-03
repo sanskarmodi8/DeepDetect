@@ -1,11 +1,11 @@
-from DeepfakeDetection.constants import PARAMS_FILE_PATH, CONFIG_FILE_PATH
-from DeepfakeDetection.utils.common import read_yaml, create_directories
+from DeepfakeDetection.constants import CONFIG_FILE_PATH, PARAMS_FILE_PATH
 from DeepfakeDetection.entity.config_entity import (
     DataIngestionConfig,
     DataPreprocessingConfig,
-    ModelTrainingConfig,
     ModelEvaluationConfig,
+    ModelTrainingConfig,
 )
+from DeepfakeDetection.utils.common import create_directories, read_yaml
 
 
 class ConfigurationManager:
@@ -47,6 +47,7 @@ class ConfigurationManager:
             min_neighbors=self.params.min_neighbors,
             scale_factor=self.params.scale_factor,
             incremental_save_frequency=self.params.incremental_save_frequency,
+            scene_change_threshold=self.params.scene_change_threshold,
         )
 
         return data_preprocessing_config

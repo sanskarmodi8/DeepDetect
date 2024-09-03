@@ -1,6 +1,6 @@
+import logging
 import os
 import sys
-import logging
 
 # format of the logging message
 logging_str = "[%(asctime)s: %(levelname)s: %(module)s: %(message)s]"

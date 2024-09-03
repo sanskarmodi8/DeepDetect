@@ -1,6 +1,6 @@
-from DeepfakeDetection.config.configuration import ConfigurationManager
-from DeepfakeDetection.components.data_ingestion import DataIngestion
 from DeepfakeDetection import logger
+from DeepfakeDetection.components.data_ingestion import DataIngestion
+from DeepfakeDetection.config.configuration import ConfigurationManager
 
 STAGE_NAME = "Data Ingestion stage"
 

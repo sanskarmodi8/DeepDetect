@@ -1,5 +1,7 @@
-import gradio as gr
 import io
+
+import gradio as gr
+
 from DeepfakeDetection.pipeline.prediction import Prediction
 
 predictor = Prediction()

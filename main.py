@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+
 from DeepfakeDetection import logger
 from DeepfakeDetection.pipeline.stage_01_data_ingestion import DataIngestionPipeline
 from DeepfakeDetection.pipeline.stage_02_data_preprocessing import (
@@ -5,7 +7,6 @@ from DeepfakeDetection.pipeline.stage_02_data_preprocessing import (
 )
 from DeepfakeDetection.pipeline.stage_03_model_training import ModelTrainingPipeline
 from DeepfakeDetection.pipeline.stage_04_model_evaluation import ModelEvaluationPipeline
-from dotenv import load_dotenv
 
 # load the env variables for the mlflow tracking
 load_dotenv()

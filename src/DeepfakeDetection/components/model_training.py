@@ -1,15 +1,17 @@
-from DeepfakeDetection.entity.config_entity import ModelTrainingConfig
-from DeepfakeDetection.utils.common import save_h5py, load_h5py
-from DeepfakeDetection import logger
+import os
+from pathlib import Path
+
 import mlflow
 import mlflow.keras
+import numpy as np
 import tensorflow as tf
+from dotenv import load_dotenv
 from tensorflow.keras import layers, models, optimizers
 from vit_keras import vit
-from pathlib import Path
-import os
-from dotenv import load_dotenv
-import numpy as np
+
+from DeepfakeDetection import logger
+from DeepfakeDetection.entity.config_entity import ModelTrainingConfig
+from DeepfakeDetection.utils.common import load_h5py, save_h5py
 
 # Load environment variables
 load_dotenv()

@@ -21,6 +21,7 @@ class DataPreprocessingConfig:
     min_neighbors: int
     scale_factor: float
     incremental_save_frequency: int
+    scene_change_threshold: float
 
 
 @dataclass(frozen=True)

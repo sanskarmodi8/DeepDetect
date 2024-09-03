@@ -1,12 +1,14 @@
-import tensorflow as tf
-import numpy as np
-import cv2
 import io
 import os
 from typing import Tuple
-from DeepfakeDetection.config.configuration import ConfigurationManager
-from vit_keras import vit
+
+import cv2
+import numpy as np
+import tensorflow as tf
 from tensorflow.keras import layers, models
+from vit_keras import vit
+
+from DeepfakeDetection.config.configuration import ConfigurationManager
 
 
 class Prediction:
