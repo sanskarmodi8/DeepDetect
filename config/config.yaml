@@ -17,11 +17,11 @@ model_training:
   train_labels_path: artifacts/data_preprocessing/train/labels/labels.h5
   val_data_path: artifacts/data_preprocessing/val/data/data.h5
   val_labels_path: artifacts/data_preprocessing/val/labels/labels.h5
-  model_path: artifacts/model_training/cross_evit_model.h5
+  model_path: artifacts/model_training/model.h5
 
 model_evaluation:
   root_dir: artifacts/model_evaluation
   data_path: artifacts/data_preprocessing/test/data/data.h5
   labels_path: artifacts/data_preprocessing/test/labels/labels.h5
-  model_path: artifacts/model_training/cross_evit_model.h5
+  model_path: artifacts/model_training/model.h5
   score: artifacts/model_evaluation/score.json

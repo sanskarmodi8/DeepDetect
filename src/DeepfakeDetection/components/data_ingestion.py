@@ -28,6 +28,11 @@ class DataIngestion:
         Raises:
             Exception: If any error occurs during the download process, it is logged and raised.
         """
+        if os.path.exists(self.config.local_data_file):
+            logger.info(
+                f"File {self.config.local_data_file} already exists. Skipping download."
+            )
+            return self.config.local_data_file
         try:
             # URL of the dataset to be downloaded
             dataset_url = self.config.source_url
@@ -73,6 +78,7 @@ class DataIngestion:
         Returns:
             None
         """
+
         # Path where the extracted contents will be stored
         unzip_path = self.config.unzip_dir
 

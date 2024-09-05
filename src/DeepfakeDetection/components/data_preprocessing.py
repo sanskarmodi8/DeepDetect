@@ -1,6 +1,5 @@
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import cv2
@@ -177,7 +176,11 @@ class DataPreprocessing:
                 .filter("select", f"gt(scene,{self.config.scene_change_threshold})")
                 .filter("fps", fps=fps)
                 .output("pipe:", format="rawvideo", pix_fmt="rgb24")
-                .run(capture_stdout=True, capture_stderr=True)
+                .run(
+                    capture_stdout=True,
+                    capture_stderr=True,
+                    cmd=["ffmpeg", "-hwaccel", "cuda"],
+                )
             )
 
             # Convert the raw output into a NumPy array of frames
@@ -245,11 +248,15 @@ class DataPreprocessing:
         data_file = os.path.join(data_dir, "data.h5")
         labels_file = os.path.join(labels_dir, "labels.h5")
 
+        # encode the labels
+        labels = [0 if label == "REAL" else 1 for label in labels]
+
         # Save data and labels using utility functions
         save_h5py(np.array(data), Path(data_file), dataset_name="data")
         save_h5py(np.array(labels), Path(labels_file), dataset_name="labels")
 
-        logger.info(f"Saved {split_name} dataset with {len(data)} samples.")
+        logger.info(f"Appended {split_name} dataset with {len(data)} frames for this video.")
+        
 
     def process_and_save_split(
         self, split_name: str, split_files: list, metadata: dict
@@ -275,12 +282,18 @@ class DataPreprocessing:
         for idx, video_file in enumerate(
             tqdm(files_to_process, desc=f"Processing {split_name} data")
         ):
+            
+            num_frames = 0 # number of frames for the video
+            
             video_path = os.path.join(self.config.data_path, video_file)
             label = metadata[video_file]["label"]
 
             # Process the video to extract preprocessed frames
             frames = self.process_video(video_path, label, self.config.max_frames)
-
+            num_frames = len(frames)
+            if num_frames == 0:
+                logger.info(f"Appended {split_name} dataset with 0 frames for this video.")
+                continue
             # Append frames and corresponding labels
             for frame in frames:
                 data.append(frame)
@@ -292,13 +305,13 @@ class DataPreprocessing:
             else:
                 fake_count += 1
 
-            # Save data incrementally after processing a set number of videos
-            if (idx + 1) % self.config.incremental_save_frequency == 0:
+            # Save data incrementally after processing a video
+            if idx > 0:
                 self.save_dataset(data, labels, split_name)
-                data, labels = [], []  # Clear lists to free memory
-
-            # Update checkpoint after each video
-            self.save_checkpoint(split_name, start_index + idx + 1)
+                self.save_checkpoint(split_name, start_index + idx + 1)
+                # reset lists
+                data = []
+                labels = []
 
         # Save any remaining data after processing all videos
         if data:

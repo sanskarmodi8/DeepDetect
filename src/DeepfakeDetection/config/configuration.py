@@ -46,7 +46,6 @@ class ConfigurationManager:
             min_size=self.params.min_size,
             min_neighbors=self.params.min_neighbors,
             scale_factor=self.params.scale_factor,
-            incremental_save_frequency=self.params.incremental_save_frequency,
             scene_change_threshold=self.params.scene_change_threshold,
         )
 
@@ -66,6 +65,12 @@ class ConfigurationManager:
             epochs=self.params.epochs,
             learning_rate=self.params.learning_rate,
             input_shape=self.params.input_shape,
+            pretrained=self.params.pretrained,
+            pretrained_top=self.params.pretrained_top,
+            include_top=self.params.include_top,
+            units=self.params.units,
+            activation=self.params.activation,
+            dropout_rate=self.params.dropout_rate,
         )
 
         return model_training_config

@@ -11,26 +11,26 @@ from DeepfakeDetection.pipeline.stage_04_model_evaluation import ModelEvaluation
 # load the env variables for the mlflow tracking
 load_dotenv()
 
-# STAGE_NAME = "Data Ingestion stage"
-# try:
-#     logger.info(f"\n\n>>>>>> stage {STAGE_NAME} started <<<<<<\n\n")
-#     data_ingestion = DataIngestionPipeline()
-#     data_ingestion.main()
-#     logger.info(f"\n\n>>>>>> stage {STAGE_NAME} completed <<<<<<\n\n")
-# except Exception as e:
-#     logger.exception(e)
-#     raise e
+STAGE_NAME = "Data Ingestion stage"
+try:
+    logger.info(f"\n\n>>>>>> stage {STAGE_NAME} started <<<<<<\n\n")
+    data_ingestion = DataIngestionPipeline()
+    data_ingestion.main()
+    logger.info(f"\n\n>>>>>> stage {STAGE_NAME} completed <<<<<<\n\n")
+except Exception as e:
+    logger.exception(e)
+    raise e
 
-# STAGE_NAME = "Data Preprocessing"
+STAGE_NAME = "Data Preprocessing"
 
-# try:
-#     logger.info(f"\n\n>>>>>> stage {STAGE_NAME} started <<<<<<\n\n")
-#     data_preprocessing = DataPreprocessingPipeline()
-#     data_preprocessing.main()
-#     logger.info(f"\n\n>>>>>> stage {STAGE_NAME} completed <<<<<<\n\n")
-# except Exception as e:
-#     logger.exception(e)
-#     raise e
+try:
+    logger.info(f"\n\n>>>>>> stage {STAGE_NAME} started <<<<<<\n\n")
+    data_preprocessing = DataPreprocessingPipeline()
+    data_preprocessing.main()
+    logger.info(f"\n\n>>>>>> stage {STAGE_NAME} completed <<<<<<\n\n")
+except Exception as e:
+    logger.exception(e)
+    raise e
 
 STAGE_NAME = "Model Training stage"
 

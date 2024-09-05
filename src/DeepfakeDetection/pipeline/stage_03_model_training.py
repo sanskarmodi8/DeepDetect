@@ -17,7 +17,7 @@ class ModelTrainingPipeline:
 try:
     logger.info(f"\n\n >>>>>> stage {STAGE_NAME} started <<<<<<\n\n")
     obj = ModelTrainingPipeline()
-    # obj.main()
+    obj.main()
     logger.info(f"\n\n>>>>>> stage {STAGE_NAME} completed <<<<<<\n\n")
 except Exception as e:
     logger.exception(e)

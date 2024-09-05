@@ -20,7 +20,6 @@ class DataPreprocessingConfig:
     min_size: list
     min_neighbors: int
     scale_factor: float
-    incremental_save_frequency: int
     scene_change_threshold: float
 
 
@@ -36,6 +35,12 @@ class ModelTrainingConfig:
     epochs: int
     learning_rate: float
     input_shape: list
+    pretrained: bool
+    pretrained_top: bool
+    include_top: bool
+    units: int
+    activation: str
+    dropout_rate: float
 
 
 @dataclass(frozen=True)
