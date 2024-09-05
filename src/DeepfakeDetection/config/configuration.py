@@ -63,7 +63,9 @@ class ConfigurationManager:
             model_path=config.model_path,
             batch_size=self.params.batch_size,
             epochs=self.params.epochs,
-            learning_rate=self.params.learning_rate,
+            learning_rate_decay=self.params.learning_rate_decay,
+            decay_steps=self.params.decay_steps,
+            decay_rate=self.params.decay_rate,
             input_shape=self.params.input_shape,
             pretrained=self.params.pretrained,
             pretrained_top=self.params.pretrained_top,
@@ -71,6 +73,10 @@ class ConfigurationManager:
             units=self.params.units,
             activation=self.params.activation,
             dropout_rate=self.params.dropout_rate,
+            l2=self.params.l2,
+            initial_learning_rate=self.params.initial_learning_rate,
+            rotation=self.params.rotation,
+            zoom=self.params.zoom,
         )
 
         return model_training_config
@@ -84,6 +90,7 @@ class ConfigurationManager:
             labels_path=config.labels_path,
             model_path=config.model_path,
             score=config.score,
+            threshold=self.params.threshold,
         )
 
         return model_evaluation_config

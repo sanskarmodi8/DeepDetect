@@ -1,13 +1,15 @@
 import os
 from pathlib import Path
 
+import h5py
 import mlflow
-import mlflow.keras
+import mlflow.tensorflow
 import numpy as np
 import tensorflow as tf
 from dotenv import load_dotenv
 from sklearn.utils.class_weight import compute_class_weight
-from tensorflow.keras import layers, models, optimizers
+from tensorflow.keras import layers, models, optimizers, regularizers
+from tensorflow.keras.metrics import AUC
 from vit_keras import vit
 
 from DeepfakeDetection import logger
@@ -29,12 +31,12 @@ class ModelTraining:
     def _initialize_mlflow(self):
         """Initialize MLflow experiment."""
         mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
-        mlflow.start_run()  # Start an MLflow run
+        if not mlflow.active_run():  # Start a run if none exists
+            mlflow.start_run()
         logger.info("MLflow experiment initialized.")
 
     def _build_model(self):
         """Builds and returns the model."""
-        # Load the pre-trained Vision Transformer model without the top layers
         vit_model = vit.vit_b16(
             image_size=tuple(self.config.input_shape[0:2]),
             activation="softmax",
@@ -43,18 +45,16 @@ class ModelTraining:
             pretrained_top=self.config.pretrained_top,
         )
 
-        inputs = layers.Input(shape=tuple(self.config.input_shape))  # Input layer
-        x2 = vit_model(inputs)  # Output of the pre-trained model
-
-        # Add custom layers
-        x = layers.Flatten()(x2)  # Flatten the output
-        x = layers.Dense(self.config.units, activation=self.config.activation)(
-            x
-        )  # Fully connected layer
-        x = layers.BatchNormalization()(x)  # Batch normalization
-        x = layers.Dropout(self.config.dropout_rate)(x)  # Dropout for regularization
-        outputs = layers.Dense(2, activation="softmax")(x)  # Output layer
-
+        inputs = layers.Input(shape=tuple(self.config.input_shape))
+        x = vit_model(inputs)
+        x = layers.Flatten()(x)
+        x = layers.Dense(
+            self.config.units,
+            activation=self.config.activation,
+            kernel_regularizer=regularizers.l2(self.config.l2),
+        )(x)
+        x = layers.Dropout(self.config.dropout_rate)(x)
+        outputs = layers.Dense(1, activation="sigmoid")(x)
         model = models.Model(inputs, outputs)
         return model
 
@@ -67,112 +67,194 @@ class ModelTraining:
 
     def compile_model(self):
         """Compile the model."""
-        class_weights = (
-            self._compute_class_weights()
-        )  # Compute class weights for imbalance
-        self.model.compile(
-            optimizer=optimizers.Adam(self.config.learning_rate),  # Adam optimizer
-            loss="sparse_categorical_crossentropy",  # Loss function
-            metrics=["accuracy"],  # Evaluation metric
+        class_weights = self._compute_class_weights()
+        optimizer = optimizers.Adam(
+            learning_rate=optimizers.schedules.ExponentialDecay(
+                initial_learning_rate=self.config.initial_learning_rate,
+                decay_steps=self.config.decay_steps,
+                decay_rate=self.config.decay_rate,
+            )
         )
+        self.model.compile(
+            optimizer=optimizer,
+            loss="binary_crossentropy",
+            metrics=["accuracy", AUC(name="auc")],
+        )
+
         # Log hyperparameters to MLflow
-        mlflow.log_param("learning_rate", self.config.learning_rate)
+        mlflow.log_param("initial_learning_rate", self.config.initial_learning_rate)
+        mlflow.log_param("decay_steps", self.config.decay_steps)
+        mlflow.log_param("decay_rate", self.config.decay_rate)
         mlflow.log_param("batch_size", self.config.batch_size)
+        mlflow.log_param("l2", self.config.l2)
+        mlflow.log_param("rotation", self.config.rotation)
+        mlflow.log_param("zoom", self.config.zoom)
         mlflow.log_param("epochs", self.config.epochs)
         mlflow.log_param("units", self.config.units)
         mlflow.log_param("activation", self.config.activation)
         mlflow.log_param("dropout_rate", self.config.dropout_rate)
+        mlflow.log_param("pretrained", self.config.pretrained)
 
         return class_weights
 
     def _compute_class_weights(self):
         """Compute class weights to handle imbalance."""
-        # Load the labels
         train_labels = load_h5py(Path(self.config.train_labels_path), "labels")
         class_weights = compute_class_weight(
             class_weight="balanced", classes=np.unique(train_labels), y=train_labels
         )
         return dict(enumerate(class_weights))
 
-    def train_model(self, train_data, val_data):
+    def train_model(self, train_data, val_data, train_samples, val_samples):
         """Train the model and save the best model checkpoint."""
-        class_weights = self.compile_model()  # Get class weights
+        class_weights = self.compile_model()
 
-        checkpoint = tf.keras.callbacks.ModelCheckpoint(
-            os.path.join(self.config.root_dir, "ckpt.weights.h5"),
-            monitor="val_accuracy",  # Monitor validation accuracy
-            save_best_only=True,  # Save only the best model
-            save_weights_only=True,  # Save only the model weights
-            mode="max",
-        )
-        early_stop = tf.keras.callbacks.EarlyStopping(
-            monitor="val_accuracy", patience=5, mode="max"  # Early stopping criteria
+        callbacks = [
+            tf.keras.callbacks.ModelCheckpoint(
+                os.path.join(self.config.root_dir, "ckpt.weights.h5"),
+                monitor="val_auc",
+                save_best_only=True,
+                save_weights_only=True,
+                mode="max",
+            ),
+            tf.keras.callbacks.EarlyStopping(
+                monitor="val_auc", patience=10, mode="max"
+            ),
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor="val_auc", factor=0.5, patience=5, min_lr=1e-6
+            ),
+        ]
+
+        # Data augmentation
+        data_augmentation = tf.keras.Sequential(
+            [
+                layers.RandomFlip("horizontal"),
+                layers.RandomRotation(self.config.rotation),
+                layers.RandomZoom(self.config.zoom),
+            ]
         )
 
-        # Train the model
+        train_data = train_data.map(
+            lambda x, y: (data_augmentation(x, training=True), y)
+        ).repeat()
+        val_data = val_data.repeat()
+
+        # Adjust steps per epoch and validation steps to handle partial batches
+        steps_per_epoch = train_samples // self.config.batch_size
+        validation_steps = val_samples // self.config.batch_size
+
         history = self.model.fit(
             train_data,
             validation_data=val_data,
             epochs=self.config.epochs,
-            batch_size=self.config.batch_size,
-            class_weight=class_weights,  # Include class weights
-            callbacks=[checkpoint, early_stop],
+            steps_per_epoch=steps_per_epoch,
+            validation_steps=validation_steps,
+            class_weight=class_weights,
+            callbacks=callbacks,
         )
 
-        # Log metrics to MLflow
-        for key, value in history.history.items():
-            mlflow.log_metric(key, value[-1])
+        # Log epoch-wise metrics to MLflow
+        for epoch, metrics in enumerate(history.history["accuracy"]):
+            mlflow.log_metric("accuracy", metrics, step=epoch)
+        for epoch, metrics in enumerate(history.history["val_accuracy"]):
+            mlflow.log_metric("val_accuracy", metrics, step=epoch)
+        for epoch, auc in enumerate(history.history["auc"]):
+            mlflow.log_metric("auc", auc, step=epoch)
+        for epoch, val_auc in enumerate(history.history["val_auc"]):
+            mlflow.log_metric("val_auc", val_auc, step=epoch)
 
         return history
 
-    def load_data(self):
-        """Load training and validation data."""
+    def load_data_generator(self, data_path, labels_path, batch_size):
+        """Load data using a generator to avoid memory overload."""
 
-        # Load data from HDF5 files
-        train_data = load_h5py(Path(self.config.train_data_path), "data")
-        val_data = load_h5py(Path(self.config.val_data_path), "data")
+        def data_generator():
+            with h5py.File(data_path, "r") as data_file, h5py.File(
+                labels_path, "r"
+            ) as labels_file:
+                data = data_file["data"]
+                labels = labels_file["labels"]
+                for i in range(0, len(data), batch_size):
+                    x_batch = data[i : i + batch_size]
+                    y_batch = labels[i : i + batch_size]
+                    for x, y in zip(x_batch, y_batch):
+                        if y not in [0, 1]:
+                            logger.warning(f"Invalid label encountered: {y}")
+                            continue
+                        yield x, y
+
+        data_gen = tf.data.Dataset.from_generator(
+            data_generator,
+            output_signature=(
+                tf.TensorSpec(shape=self.config.input_shape, dtype=tf.float32),
+                tf.TensorSpec(shape=(), dtype=tf.int32),
+            ),
+        )
+
+        with h5py.File(data_path, "r") as f:
+            total_samples = f["data"].shape[0]
+
+        return data_gen.batch(batch_size).prefetch(tf.data.AUTOTUNE), total_samples
+
+    def load_data(self):
+        """Load training and validation data using generators."""
+        train_dataset, train_samples = self.load_data_generator(
+            self.config.train_data_path,
+            self.config.train_labels_path,
+            self.config.batch_size,
+        )
+        val_dataset, val_samples = self.load_data_generator(
+            self.config.val_data_path,
+            self.config.val_labels_path,
+            self.config.batch_size,
+        )
+
+        # Check class balance
         train_labels = load_h5py(Path(self.config.train_labels_path), "labels")
         val_labels = load_h5py(Path(self.config.val_labels_path), "labels")
 
-        # Create TensorFlow datasets
-        train_dataset = tf.data.Dataset.from_tensor_slices((train_data, train_labels))
-        val_dataset = tf.data.Dataset.from_tensor_slices((val_data, val_labels))
+        logger.info(f"Train class distribution: {np.bincount(train_labels)}")
+        logger.info(f"Validation class distribution: {np.bincount(val_labels)}")
 
-        # Preprocess and batch datasets
-        train_dataset = train_dataset.batch(self.config.batch_size).prefetch(
-            tf.data.AUTOTUNE
-        )
-
-        val_dataset = val_dataset.batch(self.config.batch_size).prefetch(
-            tf.data.AUTOTUNE
-        )
-
-        return train_dataset, val_dataset
+        return train_dataset, val_dataset, train_samples, val_samples
 
     def execute(self):
         """Execute the model training and saving."""
-        logger.info("Starting model training...")
+        logger.info("Starting improved model training...")
 
-        # Load training and validation data
-        train_data, val_data = self.load_data()
+        try:
+            # Load training and validation data
+            train_data, val_data, train_samples, val_samples = self.load_data()
 
-        # Compile and train the model
-        self.compile_model()
-        history = self.train_model(train_data, val_data)
+            # Verify data
+            for x_batch, y_batch in train_data.take(1):
+                logger.info(f"Sample input shape: {x_batch.shape}")
+                logger.info(f"Sample label shape: {y_batch.shape}")
+                logger.info(f"Sample label values: {y_batch.numpy()}")
 
-        # Load weights from the best checkpoint
-        self.model.load_weights(os.path.join(self.config.root_dir, "ckpt.weights.h5"))
+            # Compile and train the model
+            history = self.train_model(train_data, val_data, train_samples, val_samples)
+            logger.info(f"History: {history}")
 
-        # Save the entire model for future use
-        self.model.save(Path(self.config.model_path))
+            # Load weights from the best checkpoint
+            self.model.load_weights(
+                os.path.join(self.config.root_dir, "ckpt.weights.h5")
+            )
 
-        # Infer the model's input signature and log the model to MLflow
-        signature = mlflow.models.signature.infer_signature(
-            train_data.map(lambda x, _: x).take(1).as_numpy_iterator().next(),
-            self.model.predict(train_data.take(1)),
-        )
-        mlflow.keras.log_model(self.model, "model", signature=signature)
+            # Save the entire model
+            self.model.save(os.path.join(self.config.root_dir, "model.h5"))
 
-        logger.info("History: %s", history.history)
-        logger.info("Model training completed successfully.")
-        mlflow.end_run()  # End the MLflow run
+            # Prepare for MLflow model logging
+            for batch in train_data.take(1):  # Fetch the first batch of training data
+                inputs = batch[0].numpy()
+                break  # Exit after first batch
+
+            # Log model to MLflow with inferred signature
+            signature = mlflow.models.signature.infer_signature(
+                inputs=inputs, outputs=self.model.predict(inputs)
+            )
+            mlflow.tensorflow.log_model(self.model, "model", signature=signature)
+
+        except Exception as e:
+            logger.exception(e)
+            raise e

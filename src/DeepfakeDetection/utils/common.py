@@ -92,7 +92,10 @@ def load_h5py(path: Path, dataset_name="data") -> Any:
     logger.info(f"HDF5 file loaded from: {path}")
     return data
 
-def save_h5py(data: np.ndarray, file_path: Path, dataset_name="data", compression="gzip"):
+
+def save_h5py(
+    data: np.ndarray, file_path: Path, dataset_name="data", compression="gzip"
+):
     """Append data to an HDF5 file if the dataset exists, or create a new dataset if it doesn't.
     Args:
         data (np.ndarray): Data to be saved or appended.
@@ -105,12 +108,11 @@ def save_h5py(data: np.ndarray, file_path: Path, dataset_name="data", compressio
             # Append to existing dataset
             dataset = f[dataset_name]
             dataset.resize(dataset.shape[0] + data.shape[0], axis=0)
-            dataset[-data.shape[0]:] = data
+            dataset[-data.shape[0] :] = data
         else:
             # Create new dataset
             f.create_dataset(dataset_name, data=data, maxshape=(None,) + data.shape[1:])
     logger.info(f"HDF5 file updated at: {file_path}")
-
 
 
 @ensure_annotations

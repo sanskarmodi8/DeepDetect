@@ -1,12 +1,14 @@
 import os
 from pathlib import Path
 
+import h5py
 import mlflow
 import mlflow.tensorflow
 import numpy as np
 import tensorflow as tf
 from dotenv import load_dotenv
 from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
+from vit_keras import layers
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import ModelEvaluationConfig
@@ -33,75 +35,85 @@ class ModelEvaluation:
         )  # Log initialization
 
     def _load_model(self):
-        """Loads the model from the given path."""
+        """Load the model with custom object scope for 'ClassToken'."""
+        custom_objects = {
+            "ClassToken": layers.ClassToken,  # Register ClassToken layer
+        }
+
         model = tf.keras.models.load_model(
-            self.config.model_path
-        )  # Load the model from the specified path
-        logger.info(
-            f"Model loaded from {self.config.model_path}"
-        )  # Log that the model was loaded
+            self.config.model_path,
+            custom_objects=custom_objects,  # Pass the custom objects to the loader
+        )
         return model
 
+    def data_generator(self, data_path, labels_path, batch_size):
+        """Generator for loading evaluation data in batches."""
+        with h5py.File(data_path, "r") as data_file, h5py.File(
+            labels_path, "r"
+        ) as labels_file:
+            data = data_file["data"]
+            labels = labels_file["labels"]
+            for i in range(0, len(data), batch_size):
+                yield data[i : i + batch_size], labels[i : i + batch_size]
+
     def evaluate_model(self):
-        """Evaluate the model on the test set and log metrics to MLflow."""
-        # Load evaluation data
-        eval_data = load_h5py(
-            Path(self.config.data_path), "data"
-        )  # Load evaluation data
-        eval_labels = load_h5py(
-            Path(self.config.labels_path), "labels"
-        )  # Load evaluation labels
+        """Evaluate the model on the test set using a generator and log metrics to MLflow."""
+        batch_size = 32  # Adjust this based on your memory constraints
 
-        # Make predictions
-        predictions = self.model.predict(eval_data)  # Get model predictions
+        # Create the data generator
+        eval_data_gen = self.data_generator(
+            self.config.data_path, self.config.labels_path, batch_size
+        )
 
-        # Ensure eval_labels is in the correct shape
+        # Calculate steps based on the size of the dataset
+        with h5py.File(self.config.data_path, "r") as f:
+            total_samples = f["data"].shape[0]
+
+        # Include an extra step for any remaining samples that don't fit exactly into a batch
+        steps = (total_samples + batch_size - 1) // batch_size  # This rounds up
+
+        # Make predictions using the generator
+        predictions = self.model.predict(eval_data_gen, steps=steps)
+
+        # Load the true labels separately to compare
+        eval_labels = load_h5py(Path(self.config.labels_path), "labels")
+
+        # Trim predictions if they exceed the number of true samples
+        predictions = predictions[:total_samples]
+
+        # Evaluate metrics (ensure eval_labels is in the correct shape)
         if len(eval_labels.shape) == 1:  # Binary classification
-            true_classes = eval_labels  # Use the labels as is for binary classification
-            if predictions.shape[1] == 2:
-                auc = roc_auc_score(
-                    true_classes, predictions[:, 1]
-                )  # Calculate AUC for binary classification
-            else:
-                raise ValueError("Predictions shape mismatch for binary classification")
-        elif len(eval_labels.shape) == 2:  # Multiclass classification
-            true_classes = np.argmax(
-                eval_labels, axis=1
-            )  # Convert one-hot labels to class indices
-            auc = roc_auc_score(
-                true_classes, predictions, multi_class="ovr"
-            )  # Calculate AUC for multiclass classification
+            true_classes = eval_labels[
+                :total_samples
+            ]  # Ensure correct number of samples
+            auc = roc_auc_score(true_classes, predictions)  # Calculate AUC
         else:
             raise ValueError("Unexpected shape for eval_labels")
 
+        # Convert predicted probabilities to class labels
+        predicted_classes = (predictions > self.config.threshold).astype(int)
+
         # Calculate accuracy
-        predicted_classes = np.argmax(
-            predictions, axis=1
-        )  # Get predicted class indices
-        accuracy = accuracy_score(true_classes, predicted_classes)  # Calculate accuracy
-        logger.info(f"Evaluation accuracy: {accuracy}")  # Log accuracy
+        accuracy = accuracy_score(true_classes, predicted_classes)
+        logger.info(f"Evaluation accuracy: {accuracy}")
 
         # Generate classification report
         report = classification_report(
             true_classes, predicted_classes, output_dict=True
-        )  # Generate classification report
-        logger.info(f"Classification Report: {report}")  # Log classification report
+        )
+        logger.info(f"Classification Report: {report}")
 
         # Save the evaluation metrics
         metrics = {"accuracy": accuracy, "auc": auc, "classification_report": report}
-        save_json(Path(self.config.score), metrics)  # Save metrics to JSON file
-        logger.info(
-            f"Evaluation metrics saved to {self.config.score}"
-        )  # Log saving of metrics
+        save_json(Path(self.config.score), metrics)
+        logger.info(f"Evaluation metrics saved to {self.config.score}")
 
         # Log metrics to MLflow
-        mlflow.log_metric("accuracy", accuracy)  # Log accuracy to MLflow
-        mlflow.log_metric("auc", auc)  # Log AUC to MLflow
-        mlflow.log_artifact(
-            str(Path(self.config.score))
-        )  # Log the metrics JSON as an artifact
+        mlflow.log_metric("accuracy", accuracy)
+        mlflow.log_metric("auc", auc)
+        mlflow.log_artifact(str(Path(self.config.score)))
 
-        return metrics  # Return the metrics
+        return metrics
 
     def execute(self):
         """Execute the model evaluation."""

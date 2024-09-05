@@ -241,22 +241,22 @@ class DataPreprocessing:
         data_dir = os.path.join(split_dir, "data")
         labels_dir = os.path.join(split_dir, "labels")
 
+        # encode the labels
+        labels = [0 if label == "REAL" else 1 for label in labels]
+
         # Create directories if they do not exist
         create_directories([split_dir, data_dir, labels_dir])
 
         # Define file paths
         data_file = os.path.join(data_dir, "data.h5")
         labels_file = os.path.join(labels_dir, "labels.h5")
-
-        # encode the labels
-        labels = [0 if label == "REAL" else 1 for label in labels]
-
         # Save data and labels using utility functions
         save_h5py(np.array(data), Path(data_file), dataset_name="data")
         save_h5py(np.array(labels), Path(labels_file), dataset_name="labels")
 
-        logger.info(f"Appended {split_name} dataset with {len(data)} frames for this video.")
-        
+        logger.info(
+            f"Appended {split_name} dataset with {len(data)} frames for this video."
+        )
 
     def process_and_save_split(
         self, split_name: str, split_files: list, metadata: dict
@@ -282,9 +282,9 @@ class DataPreprocessing:
         for idx, video_file in enumerate(
             tqdm(files_to_process, desc=f"Processing {split_name} data")
         ):
-            
-            num_frames = 0 # number of frames for the video
-            
+
+            num_frames = 0  # number of frames for the video
+
             video_path = os.path.join(self.config.data_path, video_file)
             label = metadata[video_file]["label"]
 
@@ -292,12 +292,14 @@ class DataPreprocessing:
             frames = self.process_video(video_path, label, self.config.max_frames)
             num_frames = len(frames)
             if num_frames == 0:
-                logger.info(f"Appended {split_name} dataset with 0 frames for this video.")
+                logger.info(
+                    f"Appended {split_name} dataset with 0 frames for this video."
+                )
                 continue
             # Append frames and corresponding labels
             for frame in frames:
                 data.append(frame)
-                labels.append(0 if label == "REAL" else 1)
+                labels.append(label)
 
             # Update counts based on label
             if label == "REAL":
@@ -349,13 +351,14 @@ class DataPreprocessing:
             tuple: Lists of video files for training, validation, and test splits.
         """
         # Create labels array based on metadata
-        labels = np.array(
-            [0 if metadata[video]["label"] == "REAL" else 1 for video in video_files]
-        )
-
+        labels = np.array([metadata[video]["label"] for video in video_files])
         # Separate real and fake video files
-        real_files = [video_files[i] for i in range(len(video_files)) if labels[i] == 0]
-        fake_files = [video_files[i] for i in range(len(video_files)) if labels[i] == 1]
+        real_files = [
+            video_files[i] for i in range(len(video_files)) if labels[i] == "REAL"
+        ]
+        fake_files = [
+            video_files[i] for i in range(len(video_files)) if labels[i] == "FAKE"
+        ]
 
         # Function to perform stratified split for each category
         def stratified_split_category(files: list, test_size: float, val_size: float):

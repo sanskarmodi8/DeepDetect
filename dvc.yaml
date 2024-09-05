@@ -41,11 +41,23 @@ stages:
       - artifacts/data_preprocessing/val/labels/labels.h5
     params:
       - input_shape
-      - learning_rate
+      - initial_learning_rate
+      - learning_rate_decay
+      - decay_steps
+      - decay_rate
       - batch_size
       - epochs
+      - pretrained
+      - pretrained_top
+      - include_top
+      - units
+      - activation
+      - dropout_rate
+      - l2
+      - rotation
+      - zoom
     outs:
-      - artifacts/model_training/cross_evit_model.h5
+      - artifacts/model_training/model.h5
 
   model_evaluation:
     cmd: python src/DeepfakeDetection/pipeline/stage_04_model_evaluation.py
@@ -53,8 +65,11 @@ stages:
       - src/DeepfakeDetection/pipeline/stage_04_model_evaluation.py
       - src/DeepfakeDetection/components/model_evaluation.py
       - config/config.yaml
-      - artifacts/model_training/cross_evit_model.h5
+      - artifacts/model_training/model.h5
       - artifacts/data_preprocessing/test/data/data.h5
       - artifacts/data_preprocessing/test/labels/labels.h5
+
+    params:
+      - threshold
     outs:
       - artifacts/model_evaluation/score.json

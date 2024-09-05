@@ -33,7 +33,10 @@ class ModelTrainingConfig:
     model_path: Path
     batch_size: int
     epochs: int
-    learning_rate: float
+    initial_learning_rate: float
+    learning_rate_decay: float
+    decay_steps: int
+    decay_rate: float
     input_shape: list
     pretrained: bool
     pretrained_top: bool
@@ -41,6 +44,9 @@ class ModelTrainingConfig:
     units: int
     activation: str
     dropout_rate: float
+    l2: float
+    rotation: float
+    zoom: float
 
 
 @dataclass(frozen=True)
@@ -50,3 +56,4 @@ class ModelEvaluationConfig:
     labels_path: Path
     model_path: Path
     score: Path
+    threshold: float
