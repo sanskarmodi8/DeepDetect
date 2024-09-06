@@ -8,21 +8,24 @@ min_size: [30,30]
 
 # training
 input_shape: [224, 224, 3]
-initial_learning_rate: 0.001
+initial_learning_rate: 0.01
 learning_rate_decay: 0.9
 decay_steps: 10000
 decay_rate: 0.9
-batch_size: 16
+batch_size: 8
 epochs: 10
-pretrained: False
+pretrained: True
 pretrained_top: False
-include_top: False
+include_top: True
 units: 256
 activation: relu
 dropout_rate: 0.5
 l2: 0.01
-rotation: 0.1
-zoom: 0.1
+rotation: 0.2
+zoom: 0.2
+contrast: 0.2
+gnoise: 0.1
+buffer: 800
 
 #evaluation
-threshold: 0.8
+threshold: 0.5

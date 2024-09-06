@@ -47,6 +47,9 @@ class ModelTrainingConfig:
     l2: float
     rotation: float
     zoom: float
+    contrast: float
+    buffer: int
+    gnoise: float
 
 
 @dataclass(frozen=True)

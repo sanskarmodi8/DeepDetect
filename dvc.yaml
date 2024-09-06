@@ -56,6 +56,9 @@ stages:
       - l2
       - rotation
       - zoom
+      - contrast
+      - buffer
+      - gnoise
     outs:
       - artifacts/model_training/model.h5
 

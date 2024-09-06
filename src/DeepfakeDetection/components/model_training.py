@@ -39,23 +39,26 @@ class ModelTraining:
         """Builds and returns the model."""
         vit_model = vit.vit_b16(
             image_size=tuple(self.config.input_shape[0:2]),
-            activation="softmax",
+            activation="sigmoid",
             pretrained=self.config.pretrained,
             include_top=self.config.include_top,
             pretrained_top=self.config.pretrained_top,
+            classes=1
         )
 
         inputs = layers.Input(shape=tuple(self.config.input_shape))
         x = vit_model(inputs)
-        x = layers.Flatten()(x)
-        x = layers.Dense(
-            self.config.units,
-            activation=self.config.activation,
-            kernel_regularizer=regularizers.l2(self.config.l2),
-        )(x)
-        x = layers.Dropout(self.config.dropout_rate)(x)
-        outputs = layers.Dense(1, activation="sigmoid")(x)
-        model = models.Model(inputs, outputs)
+        if not self.config.include_top:
+            x = layers.Flatten()(x)
+            x = layers.Dense(
+                self.config.units,
+                activation=self.config.activation,
+                kernel_regularizer=regularizers.l2(self.config.l2),
+            )(x)
+            x = layers.BatchNormalization()(x)  # Add BatchNormalization
+            x = layers.Dropout(self.config.dropout_rate)(x)
+            x = layers.Dense(1, activation="sigmoid")(x)
+        model = models.Model(inputs, x)
         return model
 
     def _prepare_for_resume(self):
@@ -118,7 +121,7 @@ class ModelTraining:
                 mode="max",
             ),
             tf.keras.callbacks.EarlyStopping(
-                monitor="val_auc", patience=10, mode="max"
+                monitor="val_auc", patience=5, mode="max", restore_best_weights=True
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
                 monitor="val_auc", factor=0.5, patience=5, min_lr=1e-6
@@ -131,12 +134,16 @@ class ModelTraining:
                 layers.RandomFlip("horizontal"),
                 layers.RandomRotation(self.config.rotation),
                 layers.RandomZoom(self.config.zoom),
+                layers.RandomContrast(self.config.contrast),
+                layers.GaussianNoise(self.config.gnoise),
             ]
         )
 
-        train_data = train_data.map(
-            lambda x, y: (data_augmentation(x, training=True), y)
-        ).repeat()
+        def augment(image, label):
+            return data_augmentation(image, training=True), label
+
+        train_data = train_data.map(augment, num_parallel_calls=tf.data.AUTOTUNE)
+        train_data = train_data.shuffle(buffer_size=self.config.buffer).repeat()
         val_data = val_data.repeat()
 
         # Adjust steps per epoch and validation steps to handle partial batches
@@ -174,14 +181,15 @@ class ModelTraining:
             ) as labels_file:
                 data = data_file["data"]
                 labels = labels_file["labels"]
-                for i in range(0, len(data), batch_size):
-                    x_batch = data[i : i + batch_size]
-                    y_batch = labels[i : i + batch_size]
-                    for x, y in zip(x_batch, y_batch):
-                        if y not in [0, 1]:
-                            logger.warning(f"Invalid label encountered: {y}")
-                            continue
-                        yield x, y
+                indices = np.arange(len(data))
+                np.random.shuffle(indices)
+                for i in indices:
+                    x = data[i]
+                    y = labels[i]
+                    if y not in [0, 1]:
+                        logger.warning(f"Invalid label encountered: {y}")
+                        continue
+                    yield x, y
 
         data_gen = tf.data.Dataset.from_generator(
             data_generator,
@@ -250,11 +258,11 @@ class ModelTraining:
                 break  # Exit after first batch
 
             # Log model to MLflow with inferred signature
-            signature = mlflow.models.signature.infer_signature(
-                inputs=inputs, outputs=self.model.predict(inputs)
+            signature = mlflow.models.infer_signature(
+                model_input=inputs, model_output=self.model.predict(inputs)
             )
             mlflow.tensorflow.log_model(self.model, "model", signature=signature)
-
+            mlflow.end_run()
         except Exception as e:
             logger.exception(e)
             raise e

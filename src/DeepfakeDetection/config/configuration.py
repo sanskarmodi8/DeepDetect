@@ -77,6 +77,9 @@ class ConfigurationManager:
             initial_learning_rate=self.params.initial_learning_rate,
             rotation=self.params.rotation,
             zoom=self.params.zoom,
+            contrast=self.params.contrast,
+            buffer=self.params.buffer,
+            gnoise=self.params.gnoise,
         )
 
         return model_training_config
