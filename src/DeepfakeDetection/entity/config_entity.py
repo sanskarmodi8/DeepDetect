@@ -5,9 +5,9 @@ from pathlib import Path
 @dataclass(frozen=True)
 class DataIngestionConfig:
     root_dir: Path
-    source_url: str
-    local_data_file: Path
-    unzip_dir: Path
+    source_data: str
+    final_data_path: Path
+    num_videos: int
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,7 @@ class DataPreprocessingConfig:
 
 @dataclass(frozen=True)
 class ModelTrainingConfig:
+    const_lr: bool
     root_dir: Path
     train_data_path: Path
     train_labels_path: Path

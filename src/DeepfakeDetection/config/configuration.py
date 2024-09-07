@@ -21,13 +21,13 @@ class ConfigurationManager:
     def get_data_ingestion_config(self) -> DataIngestionConfig:
         config = self.config.data_ingestion
 
-        create_directories([config.root_dir])
+        create_directories([config.root_dir, config.final_data_path])
 
         data_ingestion_config = DataIngestionConfig(
             root_dir=config.root_dir,
-            source_url=config.source_url,
-            local_data_file=config.local_data_file,
-            unzip_dir=config.unzip_dir,
+            source_data=config.source_data,
+            final_data_path=config.final_data_path,
+            num_videos=self.params.num_videos,
         )
 
         return data_ingestion_config
@@ -55,6 +55,7 @@ class ConfigurationManager:
         config = self.config.model_training
         create_directories([config.root_dir])
         model_training_config = ModelTrainingConfig(
+            const_lr=self.params.const_lr,
             root_dir=config.root_dir,
             train_data_path=config.train_data_path,
             train_labels_path=config.train_labels_path,

@@ -72,12 +72,12 @@ class ModelTraining:
         """Compile the model."""
         class_weights = self._compute_class_weights()
         optimizer = optimizers.Adam(
-            learning_rate=optimizers.schedules.ExponentialDecay(
+                learning_rate=optimizers.schedules.ExponentialDecay(
                 initial_learning_rate=self.config.initial_learning_rate,
                 decay_steps=self.config.decay_steps,
                 decay_rate=self.config.decay_rate,
-            )
-        )
+                )
+            ) if not self.config.const_lr else optimizers.Adam(learning_rate=self.config.initial_learning_rate)
         self.model.compile(
             optimizer=optimizer,
             loss="binary_crossentropy",
@@ -85,9 +85,13 @@ class ModelTraining:
         )
 
         # Log hyperparameters to MLflow
-        mlflow.log_param("initial_learning_rate", self.config.initial_learning_rate)
-        mlflow.log_param("decay_steps", self.config.decay_steps)
-        mlflow.log_param("decay_rate", self.config.decay_rate)
+        
+        if not self.config.const_lr:
+            mlflow.log_param("initial_learning_rate", self.config.initial_learning_rate)
+            mlflow.log_param("decay_steps", self.config.decay_steps)
+            mlflow.log_param("decay_rate", self.config.decay_rate)
+        else:
+            mlflow.log_param("learning_rate", self.config.initial_learning_rate)
         mlflow.log_param("batch_size", self.config.batch_size)
         mlflow.log_param("l2", self.config.l2)
         mlflow.log_param("rotation", self.config.rotation)

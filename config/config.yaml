@@ -2,9 +2,8 @@ artifacts_root: artifacts
 
 data_ingestion:
   root_dir: artifacts/data_ingestion
-  source_url: https://drive.google.com/file/d/1eRD9vs6lOwlNgngrsmX1lZapNsYIFVfV/view?usp=sharing
-  local_data_file: artifacts/data_ingestion/data.zip
-  unzip_dir: artifacts/data_ingestion
+  source_data: /home/sanskar-modi/FaceForensics++
+  final_data_path: artifacts/data_ingestion/data
 
 data_preprocessing:
   root_dir: artifacts/data_preprocessing
