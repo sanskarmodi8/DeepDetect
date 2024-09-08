@@ -14,7 +14,7 @@ stages:
       - src/DeepfakeDetection/pipeline/stage_02_data_preprocessing.py
       - src/DeepfakeDetection/components/data_preprocessing.py
       - config/config.yaml
-      - artifacts/data_ingestion/dfdc_train_part_0
+      - artifacts/data_ingestion/data
     params:
       - max_frames
       - target_size
@@ -22,12 +22,7 @@ stages:
       - min_neighbors
       - min_size
     outs:
-      - artifacts/data_preprocessing/train/data/data.h5
-      - artifacts/data_preprocessing/train/labels/labels.h5
-      - artifacts/data_preprocessing/val/data/data.h5
-      - artifacts/data_preprocessing/val/labels/labels.h5
-      - artifacts/data_preprocessing/test/data/data.h5
-      - artifacts/data_preprocessing/test/labels/labels.h5
+      - artifacts/data_preprocessing/preprocessed_data
 
   model_training:
     cmd: python src/DeepfakeDetection/pipeline/stage_03_model_training.py

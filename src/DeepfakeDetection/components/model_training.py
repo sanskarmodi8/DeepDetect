@@ -43,7 +43,7 @@ class ModelTraining:
             pretrained=self.config.pretrained,
             include_top=self.config.include_top,
             pretrained_top=self.config.pretrained_top,
-            classes=1
+            classes=1,
         )
 
         inputs = layers.Input(shape=tuple(self.config.input_shape))
@@ -71,13 +71,17 @@ class ModelTraining:
     def compile_model(self):
         """Compile the model."""
         class_weights = self._compute_class_weights()
-        optimizer = optimizers.Adam(
+        optimizer = (
+            optimizers.Adam(
                 learning_rate=optimizers.schedules.ExponentialDecay(
-                initial_learning_rate=self.config.initial_learning_rate,
-                decay_steps=self.config.decay_steps,
-                decay_rate=self.config.decay_rate,
+                    initial_learning_rate=self.config.initial_learning_rate,
+                    decay_steps=self.config.decay_steps,
+                    decay_rate=self.config.decay_rate,
                 )
-            ) if not self.config.const_lr else optimizers.Adam(learning_rate=self.config.initial_learning_rate)
+            )
+            if not self.config.const_lr
+            else optimizers.Adam(learning_rate=self.config.initial_learning_rate)
+        )
         self.model.compile(
             optimizer=optimizer,
             loss="binary_crossentropy",
@@ -85,7 +89,7 @@ class ModelTraining:
         )
 
         # Log hyperparameters to MLflow
-        
+
         if not self.config.const_lr:
             mlflow.log_param("initial_learning_rate", self.config.initial_learning_rate)
             mlflow.log_param("decay_steps", self.config.decay_steps)

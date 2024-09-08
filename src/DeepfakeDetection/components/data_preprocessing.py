@@ -1,5 +1,6 @@
 import json
 import os
+from abc import ABC, abstractmethod
 from pathlib import Path
 
 import cv2
@@ -14,148 +15,45 @@ from DeepfakeDetection.entity.config_entity import DataPreprocessingConfig
 from DeepfakeDetection.utils.common import create_directories, save_h5py
 
 
-class DataPreprocessing:
-    """
-    A class to handle the preprocessing of video data for deepfake detection.
+# Strategy interfaces
+class FrameExtractionStrategy(ABC):
+    @abstractmethod
+    def extract_frames(self, video_path: str, max_frames: int):
+        """Method to be implemented for extracting frames from a video."""
+        pass
 
-    This class includes methods for:
-    - Loading and saving processing checkpoints.
-    - Extracting and preprocessing frames from videos using ffmpeg.
-    - Detecting and extracting faces from frames using OpenCV with CUDA acceleration.
-    - Performing stratified splitting of data into training, validation, and test sets.
-    - Saving preprocessed data and labels into HDF5 format.
-    """
 
-    def __init__(self, config: DataPreprocessingConfig):
+class FaceDetectionStrategy(ABC):
+    @abstractmethod
+    def detect_faces(self, frame: np.ndarray):
+        """Method to be implemented for detecting faces from a frame."""
+        pass
+
+
+# Strategy for frame extraction
+class FFmpegFrameExtraction(FrameExtractionStrategy):
+    def __init__(self, scene_change_threshold):
         """
-        Initializes the DataPreprocessing instance with the given configuration.
+        Initialize the FFmpegFrameExtraction with a scene change threshold.
 
         Args:
-            config (DataPreprocessingConfig): Configuration object containing all necessary parameters.
+        scene_change_threshold (float): Threshold to determine if a frame is a scene change.
         """
-        self.config = config
-        # Create output directory if it doesn't exist
-        create_directories([self.config.output_dir])
-        # Define the path for the checkpoint file
-        self.checkpoint_file = os.path.join(
-            self.config.output_dir, "preprocessing_checkpoint.json"
-        )
-        # Load existing checkpoint or initialize a new one
-        self.load_checkpoint()
+        self.scene_change_threshold = scene_change_threshold
 
-    def load_checkpoint(self):
+    def extract_frames(self, video_path: str, max_frames: int):
         """
-        Load the last processed file index from the checkpoint file.
-
-        If the checkpoint file does not exist, initialize the checkpoint with zeros for each data split.
-        """
-        if os.path.exists(self.checkpoint_file):
-            # Load existing checkpoint
-            with open(self.checkpoint_file, "r") as f:
-                self.checkpoint = json.load(f)
-            logger.info("Checkpoint loaded successfully.")
-        else:
-            # Initialize a new checkpoint
-            self.checkpoint = {"train": 0, "val": 0, "test": 0}
-            logger.info("No checkpoint found. Initialized new checkpoint.")
-
-    def save_checkpoint(self, split_name: str, index: int):
-        """
-        Save the current processing state to the checkpoint file.
+        Extract frames from a video using FFmpeg where scene changes are significant.
 
         Args:
-            split_name (str): Name of the data split ('train', 'val', or 'test').
-            index (int): Index of the last processed file in the split.
-        """
-        # Update checkpoint dictionary
-        self.checkpoint[split_name] = index
-        # Write updated checkpoint to file
-        with open(self.checkpoint_file, "w") as f:
-            json.dump(self.checkpoint, f)
-        logger.info(f"Checkpoint updated for {split_name} split at index {index}.")
-
-    def preprocess_frame(self, frame: np.ndarray, target_size: tuple) -> np.ndarray:
-        """
-        Preprocess a single frame by resizing and normalizing it.
-
-        Args:
-            frame (np.ndarray): Input frame image as a NumPy array.
-            target_size (tuple): Desired output size (height, width).
+        video_path (str): Path to the video file.
+        max_frames (int): Maximum number of frames to extract.
 
         Returns:
-            np.ndarray: Preprocessed frame as a NumPy array.
-        """
-        # Convert frame to TensorFlow tensor
-        frame = tf.convert_to_tensor(frame, dtype=tf.float32)
-        # Resize frame to target size
-        frame = tf.image.resize(frame, target_size)
-        # Normalize pixel values to [0, 1] range
-        frame = frame / 255.0
-        # Convert tensor back to NumPy array
-        frame = frame.numpy()
-        return frame
+        np.ndarray: A NumPy array of frames, shape (n_frames, height, width, 3).
 
-    def extract_faces_from_frame(self, frame: np.ndarray) -> list:
-        """
-        Detect and extract faces from a single frame using OpenCV with optional CUDA support.
-
-        Args:
-            frame (np.ndarray): Input frame image as a NumPy array.
-
-        Returns:
-            list: List of extracted face images as NumPy arrays.
-        """
-        # Load pre-trained Haar Cascade classifier for face detection
-        face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        )
-
-        # Check for CUDA support in OpenCV
-        if cv2.cuda.getCudaEnabledDeviceCount() > 0:
-            # Upload frame to GPU memory
-            gpu_frame = cv2.cuda_GpuMat()
-            gpu_frame.upload(frame)
-
-            # Convert frame to grayscale on GPU
-            gpu_gray = cv2.cuda.cvtColor(gpu_frame, cv2.COLOR_BGR2GRAY)
-
-            # Perform face detection on GPU
-            faces = face_cascade.detectMultiScale(
-                gpu_gray.download(),
-                scaleFactor=self.config.scale_factor,
-                minNeighbors=self.config.min_neighbors,
-                minSize=tuple(self.config.min_size),
-            )
-        else:
-            # Convert frame to grayscale on CPU
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-            # Perform face detection on CPU
-            faces = face_cascade.detectMultiScale(
-                gray,
-                scaleFactor=self.config.scale_factor,
-                minNeighbors=self.config.min_neighbors,
-                minSize=tuple(self.config.min_size),
-            )
-
-        face_crops = []
-        # Extract and store each detected face region
-        for x, y, w, h in faces:
-            face = frame[y : y + h, x : x + w]
-            face_crops.append(face)
-
-        return face_crops
-
-    def select_key_frames(self, video_path: str, max_frames: int) -> np.ndarray:
-        """
-        Select key frames from a video using scene change detection with ffmpeg.
-
-        Args:
-            video_path (str): Path to the input video file.
-            max_frames (int): Maximum number of frames to extract.
-
-        Returns:
-            np.ndarray: Array of selected key frames as NumPy arrays.
+        Raises:
+        ffmpeg.Error: If an error occurs while extracting frames.
         """
         try:
             # Probe video to get metadata
@@ -173,7 +71,7 @@ class DataPreprocessing:
             # Use ffmpeg to extract frames where scene changes are significant
             out, _ = (
                 ffmpeg.input(video_path)
-                .filter("select", f"gt(scene,{self.config.scene_change_threshold})")
+                .filter("select", f"gt(scene,{self.scene_change_threshold})")
                 .filter("fps", fps=fps)
                 .output("pipe:", format="rawvideo", pix_fmt="rgb24")
                 .run(
@@ -185,284 +83,292 @@ class DataPreprocessing:
 
             # Convert the raw output into a NumPy array of frames
             frames = np.frombuffer(out, np.uint8).reshape([-1, height, width, 3])
-
             return frames
 
         except ffmpeg.Error as e:
             logger.error(f"Error selecting key frames from video {video_path}: {e}")
             return np.array([])
 
-    def process_video(self, video_path: str, label: str, max_frames: int) -> list:
+
+# Strategy for face detection using OpenCV haar cascades
+class OpenCVFaceDetection(FaceDetectionStrategy):
+    def __init__(self, scale_factor, min_neighbors, min_size):
         """
-        Process a single video by extracting key frames, detecting faces, and preprocessing them.
+        Parameters
+        ----------
+        scale_factor : float
+            Parameter specifying how much the image size is reduced at each scale.
+        min_neighbors : int
+            Parameter specifying how many neighbors each candidate rectangle should have to retain it.
+        min_size : list
+            Parameter specifying the minimum possible object size in the output image.
+        """
+        self.scale_factor = scale_factor
+        self.min_neighbors = min_neighbors
+        self.min_size = min_size
+
+    def detect_faces(self, frame: np.ndarray):
+        """
+        Detect faces in a frame using OpenCV's Haar cascade classifier.
+
+        Parameters
+        ----------
+        frame : np.ndarray
+            Input frame to detect faces in.
+
+        Returns
+        -------
+        face_crops : list
+            List of detected face crops.
+        """
+        face_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        )
+
+        # Check for CUDA support in OpenCV
+        if cv2.cuda.getCudaEnabledDeviceCount() > 0:
+            gpu_frame = cv2.cuda_GpuMat()
+            gpu_frame.upload(frame)
+            gpu_gray = cv2.cuda.cvtColor(gpu_frame, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(
+                gpu_gray.download(),
+                scaleFactor=self.scale_factor,
+                minNeighbors=self.min_neighbors,
+                minSize=self.min_size,
+            )
+        else:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(
+                gray,
+                scaleFactor=self.scale_factor,
+                minNeighbors=self.min_neighbors,
+                minSize=self.min_size,
+            )
+
+        face_crops = []
+        for x, y, w, h in faces:
+            face = frame[y : y + h, x : x + w]
+            face_crops.append(face)
+        return face_crops
+
+
+class DataPreprocessing:
+    """
+    A class to handle preprocessing of video data for deepfake detection.
+
+    This class handles the extraction of frames from videos, detection of faces in frames,
+    and the saving of preprocessed data into HDF5 files. It also handles stratified splitting
+    of the dataset and checkpointing of the preprocessing progress.
+
+    Attributes:
+        config (DataPreprocessingConfig): Configuration for preprocessing.
+        frame_extraction_strategy (FrameExtractionStrategy): Strategy for extracting frames from videos.
+        face_detection_strategy (FaceDetectionStrategy): Strategy for detecting faces in video frames.
+        checkpoint_file (str): Path to the checkpoint file used to track preprocessing progress.
+        checkpoint (dict): Dictionary storing the last processed index for each data split.
+    """
+
+    def __init__(self, config: DataPreprocessingConfig):
+        """
+        Initializes the DataPreprocessing class with given configuration, frame extraction, and face detection strategies.
 
         Args:
-            video_path (str): Path to the input video file.
-            label (str): Label of the video ('REAL' or 'FAKE').
-            max_frames (int): Maximum number of frames to process from the video.
+            config (DataPreprocessingConfig): The configuration object for preprocessing.
+            frame_extraction_strategy (FrameExtractionStrategy): The strategy for extracting frames from videos.
+            face_detection_strategy (FaceDetectionStrategy): The strategy for detecting faces in frames.
+        """
+        self.config = config
+        self.frame_extraction_strategy = (
+            FFmpegFrameExtraction(self.config.scene_change_threshold),
+        )
+        self.face_detection_strategy = (
+            OpenCVFaceDetection(
+                self.config.scale_factor,
+                self.config.min_neighbors,
+                self.config.min_size,
+            ),
+        )
+        self.checkpoint_file = os.path.join(
+            self.config.root_dir, "preprocessing_checkpoint.json"
+        )
+        self.load_checkpoint()
+
+    def load_checkpoint(self):
+        """
+        Loads the preprocessing checkpoint if it exists, or initializes a new one if not.
+
+        The checkpoint tracks the progress of preprocessing for each data split (train, val, test)
+        to allow for resuming from where the process left off.
+        """
+        if os.path.exists(self.checkpoint_file):
+            with open(self.checkpoint_file, "r") as f:
+                self.checkpoint = json.load(f)
+            logger.info("Checkpoint loaded successfully.")
+        else:
+            self.checkpoint = {"train": 0, "val": 0, "test": 0}
+            logger.info("No checkpoint found. Initialized new checkpoint.")
+
+    def save_checkpoint(self, split_name: str, index: int):
+        """
+        Saves the current preprocessing progress to the checkpoint file for a given split.
+
+        Args:
+            split_name (str): The name of the data split (train, val, or test).
+            index (int): The index of the last processed video file in the split.
+        """
+        self.checkpoint[split_name] = index
+        with open(self.checkpoint_file, "w") as f:
+            json.dump(self.checkpoint, f)
+        logger.info(f"Checkpoint updated for {split_name} split at index {index}.")
+
+    def preprocess_frame(self, frame: np.ndarray, target_size: tuple) -> np.ndarray:
+        """
+        Preprocesses a given frame by resizing and normalizing it.
+
+        Args:
+            frame (np.ndarray): The input frame to be preprocessed.
+            target_size (tuple): The target size to resize the frame.
 
         Returns:
-            list: List of preprocessed frames as NumPy arrays.
+            np.ndarray: The preprocessed frame.
         """
-        # Select key frames from the video
-        key_frames = self.select_key_frames(video_path, max_frames)
+        frame = tf.convert_to_tensor(frame, dtype=tf.float32)
+        frame = tf.image.resize(frame, target_size)
+        frame = frame / 255.0
+        return frame.numpy()
+
+    def process_video(self, video_path: str, label: str, max_frames: int):
+        """
+        Extracts and preprocesses frames from a video file, applying face detection if applicable.
+
+        Args:
+            video_path (str): Path to the video file.
+            label (str): The label of the video (e.g., "original" or "manipulated").
+            max_frames (int): Maximum number of frames to extract from the video.
+
+        Returns:
+            list: A list of preprocessed frames.
+        """
+        key_frames = self.frame_extraction_strategy.extract_frames(
+            video_path, max_frames
+        )
         processed_frames = []
-
         for frame in key_frames:
-            # Attempt to extract faces from the frame
-            faces = self.extract_faces_from_frame(frame)
-
+            faces = self.face_detection_strategy.detect_faces(frame)
             if faces:
-                # Preprocess the first detected face
                 processed_frame = self.preprocess_frame(
                     faces[0], tuple(self.config.target_size)
                 )
             else:
-                # If no face detected, preprocess the entire frame
                 processed_frame = self.preprocess_frame(
                     frame, tuple(self.config.target_size)
                 )
-
             processed_frames.append(processed_frame)
-
         return processed_frames
 
     def save_dataset(self, data: list, labels: list, split_name: str):
         """
-        Save the processed data and labels to HDF5 files for the specified data split.
+        Saves preprocessed data and labels to HDF5 files for a given data split.
 
         Args:
-            data (list): List of preprocessed frames.
-            labels (list): Corresponding labels for the frames.
-            split_name (str): Name of the data split ('train', 'val', or 'test').
+            data (list): A list of preprocessed frames.
+            labels (list): A list of labels corresponding to the frames.
+            split_name (str): The name of the data split (train, val, or test).
         """
-        # Define directories for saving data and labels
-        split_dir = os.path.join(self.config.output_dir, split_name)
+        split_dir = os.path.join(
+            self.config.output_data, "preprocessed_data", split_name
+        )
         data_dir = os.path.join(split_dir, "data")
         labels_dir = os.path.join(split_dir, "labels")
-
-        # encode the labels
-        labels = [0 if label == "REAL" else 1 for label in labels]
-
-        # Create directories if they do not exist
+        labels = [0 if label == "original" else 1 for label in labels]
         create_directories([split_dir, data_dir, labels_dir])
-
-        # Define file paths
         data_file = os.path.join(data_dir, "data.h5")
         labels_file = os.path.join(labels_dir, "labels.h5")
-        # Save data and labels using utility functions
         save_h5py(np.array(data), Path(data_file), dataset_name="data")
         save_h5py(np.array(labels), Path(labels_file), dataset_name="labels")
+        logger.info(f"Appended {split_name} dataset with {len(data)} frames.")
 
-        logger.info(
-            f"Appended {split_name} dataset with {len(data)} frames for this video."
-        )
-
-    def process_and_save_split(
-        self, split_name: str, split_files: list, metadata: dict
-    ):
+    def process_and_save_split(self, split_name: str, split_files: list):
         """
-        Process all videos in a data split and save the processed frames and labels.
+        Processes and saves a dataset split by extracting and preprocessing frames from videos.
 
         Args:
-            split_name (str): Name of the data split ('train', 'val', or 'test').
-            split_files (list): List of video file names in the split.
-            metadata (dict): Dictionary containing metadata for all videos.
+            split_name (str): The name of the data split (train, val, or test).
+            split_files (list): A list of video files to be processed.
         """
-        data = []
-        labels = []
-        real_count = 0
-        fake_count = 0
-
-        # Retrieve the starting index from the checkpoint
+        data, labels = [], []
         start_index = self.checkpoint.get(split_name, 0)
         files_to_process = split_files[start_index:]
 
-        # Iterate over each video file in the split
         for idx, video_file in enumerate(
             tqdm(files_to_process, desc=f"Processing {split_name} data")
         ):
-
-            num_frames = 0  # number of frames for the video
-
-            video_path = os.path.join(self.config.data_path, video_file)
-            label = metadata[video_file]["label"]
-
-            # Process the video to extract preprocessed frames
+            video_path = os.path.join(
+                self.config.data_path, video_file[0], video_file[1]
+            )
+            label = video_file[0]
             frames = self.process_video(video_path, label, self.config.max_frames)
-            num_frames = len(frames)
-            if num_frames == 0:
-                logger.info(
-                    f"Appended {split_name} dataset with 0 frames for this video."
-                )
+            if not frames:
                 continue
-            # Append frames and corresponding labels
-            for frame in frames:
-                data.append(frame)
-                labels.append(label)
-
-            # Update counts based on label
-            if label == "REAL":
-                real_count += 1
-            else:
-                fake_count += 1
-
-            # Save data incrementally after processing a video
-            if idx > 0:
+            data.extend(frames)
+            labels.extend([label] * len(frames))
+            if idx % 10 == 0:
                 self.save_dataset(data, labels, split_name)
                 self.save_checkpoint(split_name, start_index + idx + 1)
-                # reset lists
-                data = []
-                labels = []
+                data, labels = [], []
 
-        # Save any remaining data after processing all videos
         if data:
             self.save_dataset(data, labels, split_name)
 
-        # Calculate and log the ratio of REAL to FAKE samples
-        real_fake_ratio = real_count / (fake_count + 1e-6)
-        logger.info(
-            f"{split_name.capitalize()} Split - REAL: {real_count}, FAKE: {fake_count}, "
-            f"RATIO (REAL/FAKE): {real_fake_ratio:.2f}"
-        )
-        print(
-            f"{split_name.capitalize()} Split - REAL: {real_count}, FAKE: {fake_count}, "
-            f"RATIO (REAL/FAKE): {real_fake_ratio:.2f}"
-        )
-
     def stratified_split(
-        self,
-        video_files: list,
-        metadata: dict,
-        test_size: float = 0.15,
-        val_size: float = 0.15,
+        self, video_files: list, test_size: float = 0.15, val_size: float = 0.15
     ):
         """
-        Perform stratified splitting of video files into training, validation, and test sets with an equal distribution
-        of real and fake samples in each set.
+        Splits the dataset into train, validation, and test sets in a stratified manner.
 
         Args:
-            video_files (list): List of all video file names.
-            metadata (dict): Dictionary containing metadata for all videos.
-            test_size (float): Proportion of data to include in the test split.
-            val_size (float): Proportion of data to include in the validation split from the training data.
+            video_files (list): A list of video file tuples where each tuple contains the label and filename.
+            test_size (float): The proportion of the dataset to include in the test split.
+            val_size (float): The proportion of the dataset to include in the validation split.
 
         Returns:
-            tuple: Lists of video files for training, validation, and test splits.
+            tuple: Three lists of files corresponding to the train, validation, and test splits.
         """
-        # Create labels array based on metadata
-        labels = np.array([metadata[video]["label"] for video in video_files])
-        # Separate real and fake video files
-        real_files = [
-            video_files[i] for i in range(len(video_files)) if labels[i] == "REAL"
+        labels = np.array([file[0] for file in video_files])
+        stratified_split = StratifiedShuffleSplit(
+            n_splits=1, test_size=test_size, random_state=42
+        )
+        train_indices, test_indices = next(stratified_split.split(video_files, labels))
+        train_files = [video_files[i] for i in train_indices]
+        test_files = [video_files[i] for i in test_indices]
+        val_size_adjusted = val_size / (1 - test_size)
+        stratified_split_val = StratifiedShuffleSplit(
+            n_splits=1, test_size=val_size_adjusted, random_state=42
+        )
+        train_indices_final, val_indices = next(
+            stratified_split_val.split(train_files, labels[train_indices])
+        )
+        val_files = [train_files[i] for i in val_indices]
+        train_files_final = [train_files[i] for i in train_indices_final]
+        return train_files_final, val_files, test_files
+
+    def run(self):
+        """
+        Executes the entire preprocessing pipeline, processing and saving the train, validation, and test splits.
+        """
+        files = [
+            (folder, file)
+            for folder in ["manipulated", "original"]
+            for file in sorted(os.listdir(os.path.join(self.config.data_path, folder)))
         ]
-        fake_files = [
-            video_files[i] for i in range(len(video_files)) if labels[i] == "FAKE"
-        ]
 
-        # Function to perform stratified split for each category
-        def stratified_split_category(files: list, test_size: float, val_size: float):
-            # Perform initial stratified split for training and testing
-            stratified_split = StratifiedShuffleSplit(
-                n_splits=1, test_size=test_size, random_state=42
-            )
-            train_indices, test_indices = next(
-                stratified_split.split(files, np.zeros(len(files)))
-            )
+        train_files, val_files, test_files = self.stratified_split(files)
 
-            # Extract training and testing files
-            train_files = [files[i] for i in train_indices]
-            test_files = [files[i] for i in test_indices]
+        logger.info("Processing train split...")
+        self.process_and_save_split("train", train_files)
 
-            # Calculate validation size based on the training data
-            val_size_adjusted = val_size / (1 - test_size)
+        logger.info("Processing validation split...")
+        self.process_and_save_split("val", val_files)
 
-            # Perform stratified split on training data to get validation set
-            stratified_split_val = StratifiedShuffleSplit(
-                n_splits=1, test_size=val_size_adjusted, random_state=42
-            )
-            train_indices_final, val_indices = next(
-                stratified_split_val.split(train_files, np.zeros(len(train_files)))
-            )
-
-            # Extract final training and validation files
-            val_files = [train_files[i] for i in val_indices]
-            train_files_final = [train_files[i] for i in train_indices_final]
-
-            return train_files_final, val_files, test_files
-
-        # Split real and fake files separately
-        real_train_files, real_val_files, real_test_files = stratified_split_category(
-            real_files, test_size, val_size
-        )
-        fake_train_files, fake_val_files, fake_test_files = stratified_split_category(
-            fake_files, test_size, val_size
-        )
-
-        # Combine real and fake files
-        train_files = real_train_files + fake_train_files
-        val_files = real_val_files + fake_val_files
-        test_files = real_test_files + fake_test_files
-
-        # Count real and fake files in each split
-        def count_labels(files: list) -> dict:
-            counts = {"REAL": 0, "FAKE": 0}
-            for file in files:
-                label = metadata[file]["label"]
-                counts[label] += 1
-            return counts
-
-        train_counts = count_labels(train_files)
-        val_counts = count_labels(val_files)
-        test_counts = count_labels(test_files)
-
-        # Log and print the counts
-        logger.info(
-            f"Training Split - REAL: {train_counts['REAL']}, FAKE: {train_counts['FAKE']}"
-        )
-        logger.info(
-            f"Validation Split - REAL: {val_counts['REAL']}, FAKE: {val_counts['FAKE']}"
-        )
-        logger.info(
-            f"Test Split - REAL: {test_counts['REAL']}, FAKE: {test_counts['FAKE']}"
-        )
-
-        print(
-            f"Training Split - REAL: {train_counts['REAL']}, FAKE: {train_counts['FAKE']}"
-        )
-        print(
-            f"Validation Split - REAL: {val_counts['REAL']}, FAKE: {val_counts['FAKE']}"
-        )
-        print(f"Test Split - REAL: {test_counts['REAL']}, FAKE: {test_counts['FAKE']}")
-
-        return train_files, val_files, test_files
-
-    def execute(self):
-        """
-        Execute the complete preprocessing pipeline:
-        - Load metadata.
-        - Perform stratified data splitting.
-        - Process and save training, validation, and test datasets.
-        """
-        logger.info("Starting data preprocessing...")
-
-        # Load metadata from JSON file
-        metadata_path = os.path.join(self.config.data_path, "metadata.json")
-        with open(metadata_path, "r") as f:
-            metadata = json.load(f)
-        logger.info("Metadata loaded successfully.")
-
-        # Retrieve list of all video files
-        video_files = list(metadata.keys())
-
-        # Perform stratified split to maintain label distribution
-        train_files, val_files, test_files = self.stratified_split(
-            video_files, metadata
-        )
-
-        # Process and save each data split
-        self.process_and_save_split("train", train_files, metadata)
-        self.process_and_save_split("val", val_files, metadata)
-        self.process_and_save_split("test", test_files, metadata)
-
-        logger.info("Data preprocessing completed successfully.")
+        logger.info("Processing test split...")
+        self.process_and_save_split("test", test_files)

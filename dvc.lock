@@ -5,12 +5,12 @@ stages:
     deps:
     - path: config/config.yaml
       hash: md5
-      md5: d80b48dfa8e78b7581b8d65da4285492
-      size: 993
+      md5: 203ff20dbbe539b5655aafc99b9c2348
+      size: 999
     - path: src/DeepfakeDetection/components/data_ingestion.py
       hash: md5
-      md5: 5552a9f16489f8905004b944cb5c2f1e
-      size: 7675
+      md5: 71b8dccf9a26935355a3be69615c571c
+      size: 7897
     - path: src/DeepfakeDetection/pipeline/stage_01_data_ingestion.py
       hash: md5
       md5: 91709652d0014be3ea96fc12c894aff1
@@ -18,9 +18,9 @@ stages:
     outs:
     - path: artifacts/data_ingestion/data
       hash: md5
-      md5: ff7fe217076aa37c2c008781e226c96a.dir
-      size: 6740863719
-      nfiles: 2067
+      md5: d751713988987e9331980363e24189ce.dir
+      size: 0
+      nfiles: 0
   data_preprocessing:
     cmd: python src/DeepfakeDetection/pipeline/stage_02_data_preprocessing.py
     deps:

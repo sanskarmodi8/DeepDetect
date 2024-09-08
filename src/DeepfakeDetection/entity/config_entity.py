@@ -14,7 +14,7 @@ class DataIngestionConfig:
 class DataPreprocessingConfig:
     root_dir: Path
     data_path: Path
-    output_dir: Path
+    output_data: Path
     max_frames: int
     target_size: list
     min_size: list

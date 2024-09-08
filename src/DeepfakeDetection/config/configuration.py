@@ -35,12 +35,12 @@ class ConfigurationManager:
     def get_data_preprocessing_config(self) -> DataPreprocessingConfig:
         config = self.config.data_preprocessing
 
-        create_directories([config.root_dir])
+        create_directories([config.root_dir, config.output_data])
 
         data_preprocessing_config = DataPreprocessingConfig(
             root_dir=config.root_dir,
             data_path=config.data_path,
-            output_dir=config.output_dir,
+            output_data=config.output_data,
             max_frames=self.params.max_frames,
             target_size=self.params.target_size,
             min_size=self.params.min_size,

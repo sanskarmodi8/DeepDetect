@@ -12,7 +12,7 @@ class DataPreprocessingPipeline:
         )
 
     def main(self):
-        self.data_preprocessing.execute()
+        self.data_preprocessing.run()
 
 
 STAGE_NAME = "Data Preprocessing"

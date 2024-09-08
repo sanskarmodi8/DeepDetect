@@ -7,8 +7,8 @@ data_ingestion:
 
 data_preprocessing:
   root_dir: artifacts/data_preprocessing
-  data_path: artifacts/data_ingestion/dfdc_train_part_0
-  output_dir: artifacts/data_preprocessing
+  data_path: artifacts/data_ingestion/data
+  output_data: artifacts/data_preprocessing/preprocessed_data
 
 model_training:
   root_dir: artifacts/model_training

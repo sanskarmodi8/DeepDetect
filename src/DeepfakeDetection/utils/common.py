@@ -38,14 +38,21 @@ def read_yaml(path_to_yaml: Path) -> ConfigBox:
 
 @ensure_annotations
 def create_directories(path_to_directories: list, verbose=True):
-    """create list of directories
+    """Create a list of directories if they don't already exist or are not empty.
     Args:
-        path_to_directories (list): list of path of directories
+        path_to_directories (list): List of path of directories
     """
     for path in path_to_directories:
+        # Check if directory exists and has files
+        if os.path.exists(path):
+            if verbose:
+                logger.info(
+                    f"Directory at {path} already exists and contains files. Skipping creation."
+                )
+            continue  # Skip creating the directory if it's not empty
         os.makedirs(path, exist_ok=True)
         if verbose:
-            logger.info(f"created directory at: {path}")
+            logger.info(f"Created directory at: {path}")
 
 
 @ensure_annotations
