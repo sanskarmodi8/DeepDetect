@@ -4,6 +4,9 @@ tensorflow_addons
 keras
 vit-keras
 torch
+facenet-pytorch
+albumentations
+albumentations[imgaug,opencv]
 torchvision
 timm
 transformers

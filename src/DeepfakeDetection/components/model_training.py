@@ -1,6 +1,9 @@
 import os
+import json
 from pathlib import Path
+from abc import ABC, abstractmethod
 
+import cv2
 import h5py
 import mlflow
 import mlflow.tensorflow
@@ -10,7 +13,9 @@ from dotenv import load_dotenv
 from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras import layers, models, optimizers, regularizers
 from tensorflow.keras.metrics import AUC
-from vit_keras import vit
+from efficientnet.tfkeras import EfficientNetB7
+from tensorflow.keras.applications.efficientnet import preprocess_input
+import albumentations as A
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import ModelTrainingConfig
@@ -19,46 +24,149 @@ from DeepfakeDetection.utils.common import load_h5py
 # Load environment variables (e.g., for MLflow tracking URI)
 load_dotenv()
 
+# Strategy Interfaces
+class ModelArchitectureStrategy(ABC):
+    @abstractmethod
+    def build_model(self, input_shape):
+        """Method to define the model architecture"""
+        pass
 
+class ModelTrainingStrategy(ABC):
+    @abstractmethod
+    def train(self, model, train_data, val_data, config):
+        """Method to train the model"""
+        pass
+
+# Concrete Implementation of ModelArchitectureStrategy
+class EfficientNetTransformerArchitecture(ModelArchitectureStrategy):
+    def build_model(self, config):
+        # EfficientNetB7 as feature extractor
+        base_model = EfficientNetB7(include_top=False, input_shape=tuple(config.input_shape), weights='imagenet')
+        base_model.trainable = False
+        
+        inputs = layers.Input(shape=tuple(config.input_shape))
+        x = preprocess_input(inputs)
+        x = base_model(x)
+        x = layers.GlobalAveragePooling2D()(x)
+
+        # Transformer for temporal dynamics across frames
+        x = layers.Reshape((-1, x.shape[-1]))(x)
+        transformer_layer = layers.Transformer(num_heads=config.num_heads, key_dim=config.key_dim, dropout=config.dropout_rate)(x)
+        x = layers.GlobalAveragePooling1D()(transformer_layer)
+
+        # Final classification head
+        x = layers.Dense(config.units, activation=config.activation, kernel_regularizer=regularizers.l2(config.l2))(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Dropout(config.dropout_rate)(x)
+        outputs = layers.Dense(1, activation="sigmoid")(x)
+        
+        model = models.Model(inputs, outputs)
+        return model
+
+# Concrete Implementation of ModelTrainingStrategy
+class AugmentedTrainingStrategy(ModelTrainingStrategy):
+    def train(self, model, train_data, val_data, train_samples, val_samples, config):
+        train_labels = load_h5py(Path(config.train_labels_path), "labels")
+        class_weights = compute_class_weight(
+            class_weight="balanced", classes=np.unique(train_labels), y=train_labels
+        )
+        class_weights = dict(enumerate(class_weights))
+        logger.info(f"Computed Class Weights: {class_weights}")
+        optimizer = (
+            optimizers.Adam(
+                learning_rate=optimizers.schedules.ExponentialDecay(
+                    initial_learning_rate=config.initial_learning_rate,
+                    decay_steps=config.decay_steps,
+                    decay_rate=config.decay_rate,
+                )
+            )
+            if not config.const_lr
+            else optimizers.Adam(learning_rate=config.initial_learning_rate)
+        )
+        model.compile(
+            optimizer=optimizer,
+            loss="binary_crossentropy",
+            metrics=["accuracy", AUC(name="auc")],
+        )
+
+        callbacks = [
+            tf.keras.callbacks.ModelCheckpoint(
+                os.path.join(config.root_dir, "ckpt.weights.h5"),
+                monitor="val_auc",
+                save_best_only=True,
+                save_weights_only=True,
+                mode="max",
+            ),
+            tf.keras.callbacks.EarlyStopping(
+                monitor="val_auc", patience=10, mode="max", restore_best_weights=True
+            ),
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor="val_auc", factor=0.5, patience=5, min_lr=1e-6
+            ),
+        ]
+
+        # Augmentations
+        def dfdc_augmentations(image):
+            transform = A.Compose([
+                A.ImageCompression(quality_lower=60, quality_upper=100, p=0.5),
+                A.GaussNoise(p=0.1),
+                A.GaussianBlur(blur_limit=3, p=0.05),
+                A.HorizontalFlip(),
+                A.OneOf([
+                    A.Resize(300, 300, interpolation=cv2.INTER_AREA),
+                    A.Resize(300, 300, interpolation=cv2.INTER_LINEAR),
+                ], p=1),
+                A.PadIfNeeded(min_height=300, min_width=300, border_mode=cv2.BORDER_CONSTANT),
+                A.OneOf([A.RandomBrightnessContrast(), A.HueSaturationValue()], p=0.7),
+                A.ToGray(p=0.2),
+                A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.2, rotate_limit=10, border_mode=cv2.BORDER_CONSTANT, p=0.5),
+                A.Cutout(num_holes=8, max_h_size=16, max_w_size=16, fill_value=0, p=0.5)
+            ])
+            augmented = transform(image=image)
+            return augmented['image']
+
+        def augment(image, label):
+            image = tf.numpy_function(dfdc_augmentations, [image], tf.float32)
+            return image, label
+
+        train_data = train_data.map(augment, num_parallel_calls=tf.data.AUTOTUNE)
+        train_data = train_data.shuffle(buffer_size=config.buffer)
+
+        steps_per_epoch = train_samples // config.batch_size
+        validation_steps = val_samples // config.batch_size
+
+        history = model.fit(
+            train_data,
+            validation_data=val_data,
+            epochs=config.epochs,
+            steps_per_epoch=steps_per_epoch,
+            validation_steps=validation_steps,
+            class_weight=class_weights,
+            callbacks=callbacks,
+        )
+
+        return history
+
+# ModelTraining Class
 class ModelTraining:
-
     def __init__(self, config: ModelTrainingConfig):
         self.config = config
-        self.model = self._build_model()  # Initialize the model
-        self._initialize_mlflow()  # Set up MLflow tracking
-        self._prepare_for_resume()  # Resume from checkpoint if available
+        self.training_strategy = AugmentedTrainingStrategy()
+        self.architecture_strategy = EfficientNetTransformerArchitecture()
+        self.model = self._build_model()
+        self._initialize_mlflow()
+        self._prepare_for_resume()
 
     def _initialize_mlflow(self):
         """Initialize MLflow experiment."""
         mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
-        if not mlflow.active_run():  # Start a run if none exists
+        if not mlflow.active_run():
             mlflow.start_run()
         logger.info("MLflow experiment initialized.")
 
     def _build_model(self):
         """Builds and returns the model."""
-        vit_model = vit.vit_b16(
-            image_size=tuple(self.config.input_shape[0:2]),
-            activation="sigmoid",
-            pretrained=self.config.pretrained,
-            include_top=self.config.include_top,
-            pretrained_top=self.config.pretrained_top,
-            classes=1,
-        )
-
-        inputs = layers.Input(shape=tuple(self.config.input_shape))
-        x = vit_model(inputs)
-        if not self.config.include_top:
-            x = layers.Flatten()(x)
-            x = layers.Dense(
-                self.config.units,
-                activation=self.config.activation,
-                kernel_regularizer=regularizers.l2(self.config.l2),
-            )(x)
-            x = layers.BatchNormalization()(x)  # Add BatchNormalization
-            x = layers.Dropout(self.config.dropout_rate)(x)
-            x = layers.Dense(1, activation="sigmoid")(x)
-        model = models.Model(inputs, x)
+        model = self.architecture_strategy.build_model(config=self.config)
         return model
 
     def _prepare_for_resume(self):
@@ -68,121 +176,8 @@ class ModelTraining:
             logger.info("Loading model weights from the latest checkpoint.")
             self.model.load_weights(checkpoint_path)
 
-    def compile_model(self):
-        """Compile the model."""
-        class_weights = self._compute_class_weights()
-        optimizer = (
-            optimizers.Adam(
-                learning_rate=optimizers.schedules.ExponentialDecay(
-                    initial_learning_rate=self.config.initial_learning_rate,
-                    decay_steps=self.config.decay_steps,
-                    decay_rate=self.config.decay_rate,
-                )
-            )
-            if not self.config.const_lr
-            else optimizers.Adam(learning_rate=self.config.initial_learning_rate)
-        )
-        self.model.compile(
-            optimizer=optimizer,
-            loss="binary_crossentropy",
-            metrics=["accuracy", AUC(name="auc")],
-        )
-
-        # Log hyperparameters to MLflow
-
-        if not self.config.const_lr:
-            mlflow.log_param("initial_learning_rate", self.config.initial_learning_rate)
-            mlflow.log_param("decay_steps", self.config.decay_steps)
-            mlflow.log_param("decay_rate", self.config.decay_rate)
-        else:
-            mlflow.log_param("learning_rate", self.config.initial_learning_rate)
-        mlflow.log_param("batch_size", self.config.batch_size)
-        mlflow.log_param("l2", self.config.l2)
-        mlflow.log_param("rotation", self.config.rotation)
-        mlflow.log_param("zoom", self.config.zoom)
-        mlflow.log_param("epochs", self.config.epochs)
-        mlflow.log_param("units", self.config.units)
-        mlflow.log_param("activation", self.config.activation)
-        mlflow.log_param("dropout_rate", self.config.dropout_rate)
-        mlflow.log_param("pretrained", self.config.pretrained)
-
-        return class_weights
-
-    def _compute_class_weights(self):
-        """Compute class weights to handle imbalance."""
-        train_labels = load_h5py(Path(self.config.train_labels_path), "labels")
-        class_weights = compute_class_weight(
-            class_weight="balanced", classes=np.unique(train_labels), y=train_labels
-        )
-        return dict(enumerate(class_weights))
-
-    def train_model(self, train_data, val_data, train_samples, val_samples):
-        """Train the model and save the best model checkpoint."""
-        class_weights = self.compile_model()
-
-        callbacks = [
-            tf.keras.callbacks.ModelCheckpoint(
-                os.path.join(self.config.root_dir, "ckpt.weights.h5"),
-                monitor="val_auc",
-                save_best_only=True,
-                save_weights_only=True,
-                mode="max",
-            ),
-            tf.keras.callbacks.EarlyStopping(
-                monitor="val_auc", patience=5, mode="max", restore_best_weights=True
-            ),
-            tf.keras.callbacks.ReduceLROnPlateau(
-                monitor="val_auc", factor=0.5, patience=5, min_lr=1e-6
-            ),
-        ]
-
-        # Data augmentation
-        data_augmentation = tf.keras.Sequential(
-            [
-                layers.RandomFlip("horizontal"),
-                layers.RandomRotation(self.config.rotation),
-                layers.RandomZoom(self.config.zoom),
-                layers.RandomContrast(self.config.contrast),
-                layers.GaussianNoise(self.config.gnoise),
-            ]
-        )
-
-        def augment(image, label):
-            return data_augmentation(image, training=True), label
-
-        train_data = train_data.map(augment, num_parallel_calls=tf.data.AUTOTUNE)
-        train_data = train_data.shuffle(buffer_size=self.config.buffer).repeat()
-        val_data = val_data.repeat()
-
-        # Adjust steps per epoch and validation steps to handle partial batches
-        steps_per_epoch = train_samples // self.config.batch_size
-        validation_steps = val_samples // self.config.batch_size
-
-        history = self.model.fit(
-            train_data,
-            validation_data=val_data,
-            epochs=self.config.epochs,
-            steps_per_epoch=steps_per_epoch,
-            validation_steps=validation_steps,
-            class_weight=class_weights,
-            callbacks=callbacks,
-        )
-
-        # Log epoch-wise metrics to MLflow
-        for epoch, metrics in enumerate(history.history["accuracy"]):
-            mlflow.log_metric("accuracy", metrics, step=epoch)
-        for epoch, metrics in enumerate(history.history["val_accuracy"]):
-            mlflow.log_metric("val_accuracy", metrics, step=epoch)
-        for epoch, auc in enumerate(history.history["auc"]):
-            mlflow.log_metric("auc", auc, step=epoch)
-        for epoch, val_auc in enumerate(history.history["val_auc"]):
-            mlflow.log_metric("val_auc", val_auc, step=epoch)
-
-        return history
-
     def load_data_generator(self, data_path, labels_path, batch_size):
         """Load data using a generator to avoid memory overload."""
-
         def data_generator():
             with h5py.File(data_path, "r") as data_file, h5py.File(
                 labels_path, "r"
@@ -202,8 +197,8 @@ class ModelTraining:
         data_gen = tf.data.Dataset.from_generator(
             data_generator,
             output_signature=(
-                tf.TensorSpec(shape=self.config.input_shape, dtype=tf.float32),
-                tf.TensorSpec(shape=(), dtype=tf.int32),
+                tf.TensorSpec(shape=self.config.input_shape, dtype=tf.float32, name="data"), 
+                tf.TensorSpec(shape=(), dtype=tf.int32 , name="labels"), 
             ),
         )
 
@@ -236,7 +231,7 @@ class ModelTraining:
 
     def execute(self):
         """Execute the model training and saving."""
-        logger.info("Starting improved model training...")
+        logger.info("Starting model training...")
 
         try:
             # Load training and validation data
@@ -246,31 +241,23 @@ class ModelTraining:
             for x_batch, y_batch in train_data.take(1):
                 logger.info(f"Sample input shape: {x_batch.shape}")
                 logger.info(f"Sample label shape: {y_batch.shape}")
-                logger.info(f"Sample label values: {y_batch.numpy()}")
 
-            # Compile and train the model
-            history = self.train_model(train_data, val_data, train_samples, val_samples)
+            # Train the model
+            history = self.training_strategy.train(
+                self.model, train_data, val_data, train_samples, val_samples, self.config
+            )
+            
             logger.info(f"History: {history}")
 
-            # Load weights from the best checkpoint
-            self.model.load_weights(
-                os.path.join(self.config.root_dir, "ckpt.weights.h5")
-            )
+            # Save model weights after training
+            self.model.load_weights(self.config.ckpt_path)
+            self.model.save(self.config.model_path)
+            logger.info(f"Model saved at {self.config.model_path}")
 
-            # Save the entire model
-            self.model.save(os.path.join(self.config.root_dir, "model.h5"))
-
-            # Prepare for MLflow model logging
-            for batch in train_data.take(1):  # Fetch the first batch of training data
-                inputs = batch[0].numpy()
-                break  # Exit after first batch
-
-            # Log model to MLflow with inferred signature
-            signature = mlflow.models.infer_signature(
-                model_input=inputs, model_output=self.model.predict(inputs)
-            )
-            mlflow.tensorflow.log_model(self.model, "model", signature=signature)
-            mlflow.end_run()
         except Exception as e:
-            logger.exception(e)
-            raise e
+            logger.error(f"Error during training: {str(e)}")
+            raise
+
+        finally:
+            mlflow.end_run()
+

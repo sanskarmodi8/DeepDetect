@@ -21,6 +21,7 @@ class DataPreprocessingConfig:
     min_neighbors: int
     scale_factor: float
     scene_change_threshold: float
+    mtcnn_thres: list
 
 
 @dataclass(frozen=True)
@@ -40,8 +41,8 @@ class ModelTrainingConfig:
     decay_rate: float
     input_shape: list
     pretrained: bool
-    pretrained_top: bool
-    include_top: bool
+    num_heads: int
+    key_dim: int
     units: int
     activation: str
     dropout_rate: float

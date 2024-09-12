@@ -47,6 +47,7 @@ class ConfigurationManager:
             min_neighbors=self.params.min_neighbors,
             scale_factor=self.params.scale_factor,
             scene_change_threshold=self.params.scene_change_threshold,
+            mtcnn_thres=self.params.mtcnn_thres,
         )
 
         return data_preprocessing_config
@@ -69,8 +70,8 @@ class ConfigurationManager:
             decay_rate=self.params.decay_rate,
             input_shape=self.params.input_shape,
             pretrained=self.params.pretrained,
-            pretrained_top=self.params.pretrained_top,
-            include_top=self.params.include_top,
+            num_heads=self.params.num_heads,
+            key_dim=self.params.key_dim,
             units=self.params.units,
             activation=self.params.activation,
             dropout_rate=self.params.dropout_rate,

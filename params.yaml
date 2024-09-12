@@ -2,33 +2,30 @@
 num_videos: 1200
 
 # preprocessing
+mtcnn_thres: [0.85, 0.95, 0.95]
 max_frames: 100
-scene_change_threshold: 0.4
-target_size: [224, 224]
+scene_change_threshold: 0.01
+target_size: [600, 600]
 scale_factor: 1.1
 min_neighbors: 5
 min_size: [30,30]
 
 # training
 const_lr: True
-input_shape: [224, 224, 3]
-initial_learning_rate: 0.1
+input_shape: [600, 600, 3]
+initial_learning_rate: 0.01
 learning_rate_decay: 0.9
 decay_steps: 10000
 decay_rate: 0.9
 batch_size: 8
-epochs: 10
+epochs: 50
 pretrained: True
-pretrained_top: False
-include_top: True
+num_heads: 8
+key_dim: 256
 units: 256
 activation: relu
-dropout_rate: 0.5
+dropout_rate: 0.3
 l2: 0.01
-rotation: 0.2
-zoom: 0.2
-contrast: 0.2
-gnoise: 0.1
 buffer: 800
 
 #evaluation

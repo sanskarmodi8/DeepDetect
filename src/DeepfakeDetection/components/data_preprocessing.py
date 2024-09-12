@@ -9,6 +9,7 @@ import numpy as np
 import tensorflow as tf
 from sklearn.model_selection import StratifiedShuffleSplit
 from tqdm import tqdm
+from facenet_pytorch import MTCNN
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import DataPreprocessingConfig
@@ -88,44 +89,29 @@ class FFmpegFrameExtraction(FrameExtractionStrategy):
         except ffmpeg.Error as e:
             logger.error(f"Error selecting key frames from video {video_path}: {e}")
             return np.array([])
+        
+class MTCNNFaceDetection(FaceDetectionStrategy):
+    def __init__(self, config: DataPreprocessingConfig, device="cuda:0"):
+        self.detector = MTCNN(margin=0, thresholds=config.mtcnn_thres, device=device)
+        
+    def detect_faces(self, frame: np.ndarray):
+        faces, _ = self.detector.detect(frame)
+        return faces  # This will be a numpy array of shape (n, 4) where n is the number of faces
+
 
 
 # Strategy for face detection using OpenCV haar cascades
 class OpenCVFaceDetection(FaceDetectionStrategy):
-    def __init__(self, scale_factor, min_neighbors, min_size):
-        """
-        Parameters
-        ----------
-        scale_factor : float
-            Parameter specifying how much the image size is reduced at each scale.
-        min_neighbors : int
-            Parameter specifying how many neighbors each candidate rectangle should have to retain it.
-        min_size : list
-            Parameter specifying the minimum possible object size in the output image.
-        """
-        self.scale_factor = scale_factor
-        self.min_neighbors = min_neighbors
-        self.min_size = min_size
+    def __init__(self, config: DataPreprocessingConfig):
+        self.scale_factor = config.scale_factor
+        self.min_neighbors = config.min_neighbors
+        self.min_size = config.min_size
 
     def detect_faces(self, frame: np.ndarray):
-        """
-        Detect faces in a frame using OpenCV's Haar cascade classifier.
-
-        Parameters
-        ----------
-        frame : np.ndarray
-            Input frame to detect faces in.
-
-        Returns
-        -------
-        face_crops : list
-            List of detected face crops.
-        """
         face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         )
 
-        # Check for CUDA support in OpenCV
         if cv2.cuda.getCudaEnabledDeviceCount() > 0:
             gpu_frame = cv2.cuda_GpuMat()
             gpu_frame.upload(frame)
@@ -145,11 +131,7 @@ class OpenCVFaceDetection(FaceDetectionStrategy):
                 minSize=self.min_size,
             )
 
-        face_crops = []
-        for x, y, w, h in faces:
-            face = frame[y : y + h, x : x + w]
-            face_crops.append(face)
-        return face_crops
+        return faces
 
 
 class DataPreprocessing:
@@ -178,16 +160,11 @@ class DataPreprocessing:
             face_detection_strategy (FaceDetectionStrategy): The strategy for detecting faces in frames.
         """
         self.config = config
-        self.frame_extraction_strategy = (
-            FFmpegFrameExtraction(self.config.scene_change_threshold),
+        self.frame_extraction_strategy = FFmpegFrameExtraction(self.config.scene_change_threshold)
+        self.face_detection_strategy = MTCNNFaceDetection(
+            self.config
         )
-        self.face_detection_strategy = (
-            OpenCVFaceDetection(
-                self.config.scale_factor,
-                self.config.min_neighbors,
-                self.config.min_size,
-            ),
-        )
+
         self.checkpoint_file = os.path.join(
             self.config.root_dir, "preprocessing_checkpoint.json"
         )
@@ -221,50 +198,46 @@ class DataPreprocessing:
             json.dump(self.checkpoint, f)
         logger.info(f"Checkpoint updated for {split_name} split at index {index}.")
 
+    def process_video(self, video_path: str, label: str, max_frames: int):
+        key_frames = self.frame_extraction_strategy.extract_frames(video_path, max_frames)
+        logger.info(f"Extracted {len(key_frames)} frames. Shape: {key_frames[0].shape if len(key_frames) > 0 else 'N/A'}")
+        
+        processed_frames = []
+        for i, frame in enumerate(key_frames):
+            faces = self.face_detection_strategy.detect_faces(frame)
+            if faces is not None:
+                logger.info(f"Detected {len(faces)} faces in frame {i}")
+            else:
+                logger.info(f"No faces detected in frame {i}")
+                faces = []
+            
+            if len(faces) > 0 and faces[0] is not None:
+                x, y, w, h = faces[0]
+                face = frame[int(y):int(y+h), int(x):int(x+w)]
+                
+                # Check if the face has non-zero dimensions
+                if face.shape[0] > 0 and face.shape[1] > 0:
+                    processed_frame = self.preprocess_frame(face, tuple(self.config.target_size))
+                    logger.info("Extracted faces from frame")
+                else:
+                    logger.warning(f"Detected face with zero dimensions in frame {i}")
+                    processed_frame = self.preprocess_frame(frame, tuple(self.config.target_size))
+                    logger.info("Proceeding without extracting faces")
+            else:
+                processed_frame = self.preprocess_frame(frame, tuple(self.config.target_size))
+                logger.info("Proceeding without extracting faces")
+            
+            processed_frames.append(processed_frame)
+        
+        return processed_frames
+
+
     def preprocess_frame(self, frame: np.ndarray, target_size: tuple) -> np.ndarray:
-        """
-        Preprocesses a given frame by resizing and normalizing it.
-
-        Args:
-            frame (np.ndarray): The input frame to be preprocessed.
-            target_size (tuple): The target size to resize the frame.
-
-        Returns:
-            np.ndarray: The preprocessed frame.
-        """
         frame = tf.convert_to_tensor(frame, dtype=tf.float32)
         frame = tf.image.resize(frame, target_size)
+        
         frame = frame / 255.0
         return frame.numpy()
-
-    def process_video(self, video_path: str, label: str, max_frames: int):
-        """
-        Extracts and preprocesses frames from a video file, applying face detection if applicable.
-
-        Args:
-            video_path (str): Path to the video file.
-            label (str): The label of the video (e.g., "original" or "manipulated").
-            max_frames (int): Maximum number of frames to extract from the video.
-
-        Returns:
-            list: A list of preprocessed frames.
-        """
-        key_frames = self.frame_extraction_strategy.extract_frames(
-            video_path, max_frames
-        )
-        processed_frames = []
-        for frame in key_frames:
-            faces = self.face_detection_strategy.detect_faces(frame)
-            if faces:
-                processed_frame = self.preprocess_frame(
-                    faces[0], tuple(self.config.target_size)
-                )
-            else:
-                processed_frame = self.preprocess_frame(
-                    frame, tuple(self.config.target_size)
-                )
-            processed_frames.append(processed_frame)
-        return processed_frames
 
     def save_dataset(self, data: list, labels: list, split_name: str):
         """
@@ -276,7 +249,7 @@ class DataPreprocessing:
             split_name (str): The name of the data split (train, val, or test).
         """
         split_dir = os.path.join(
-            self.config.output_data, "preprocessed_data", split_name
+            self.config.output_data, split_name
         )
         data_dir = os.path.join(split_dir, "data")
         labels_dir = os.path.join(split_dir, "labels")
@@ -291,7 +264,7 @@ class DataPreprocessing:
     def process_and_save_split(self, split_name: str, split_files: list):
         """
         Processes and saves a dataset split by extracting and preprocessing frames from videos.
-
+        
         Args:
             split_name (str): The name of the data split (train, val, or test).
             split_files (list): A list of video files to be processed.
@@ -299,6 +272,10 @@ class DataPreprocessing:
         data, labels = [], []
         start_index = self.checkpoint.get(split_name, 0)
         files_to_process = split_files[start_index:]
+        
+        original_count, manipulated_count = 0, 0
+        
+        flag = False
 
         for idx, video_file in enumerate(
             tqdm(files_to_process, desc=f"Processing {split_name} data")
@@ -308,17 +285,43 @@ class DataPreprocessing:
             )
             label = video_file[0]
             frames = self.process_video(video_path, label, self.config.max_frames)
-            if not frames:
-                continue
-            data.extend(frames)
-            labels.extend([label] * len(frames))
-            if idx % 10 == 0:
-                self.save_dataset(data, labels, split_name)
-                self.save_checkpoint(split_name, start_index + idx + 1)
-                data, labels = [], []
 
+            # Track the number of original/manipulated videos
+            if label == "original":
+                original_count += 1
+            else:
+                manipulated_count += 1
+
+            logger.info(f"Processed video {video_file[1]} with {len(frames)} frames.")
+
+            if len(frames) > 0:
+                data.extend(frames)
+                labels.extend([label] * len(frames))
+
+            if len(data) > 0:
+                if not flag:
+                    frame = frames[0] * 255 # de-normalize
+                    cv2.imwrite(os.path.join(self.config.root_dir, f"sample_processed_frame{idx}.jpg"), cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                    if idx != 0 and idx == 10:
+                        flag = True
+                self.save_dataset(data, labels, split_name)
+                data, labels = [], []
+            else:
+                logger.info("Appended 0 frames for this video.")
+
+            # Save checkpoint after each video
+            self.save_checkpoint(split_name, start_index + idx + 1)
+
+        # Final save if there's leftover data
         if data:
             self.save_dataset(data, labels, split_name)
+
+        # Log the count and ratio of original and manipulated videos
+        total_videos = original_count + manipulated_count
+        if total_videos > 0:
+            logger.info(f"Processed {original_count} original videos and {manipulated_count} manipulated videos.")
+            logger.info(f"Ratio of original to manipulated videos: {original_count}/{manipulated_count}")
+
 
     def stratified_split(
         self, video_files: list, test_size: float = 0.15, val_size: float = 0.15
@@ -338,19 +341,31 @@ class DataPreprocessing:
         stratified_split = StratifiedShuffleSplit(
             n_splits=1, test_size=test_size, random_state=42
         )
+        
+        # Split into train and test
         train_indices, test_indices = next(stratified_split.split(video_files, labels))
         train_files = [video_files[i] for i in train_indices]
         test_files = [video_files[i] for i in test_indices]
+        
+        # Adjust val_size proportion based on the remaining train data
         val_size_adjusted = val_size / (1 - test_size)
+        
+        # Perform the stratified split for validation within the train set
+        labels_train = labels[train_indices]  # Correct labels for the training set
         stratified_split_val = StratifiedShuffleSplit(
             n_splits=1, test_size=val_size_adjusted, random_state=42
         )
+        
         train_indices_final, val_indices = next(
-            stratified_split_val.split(train_files, labels[train_indices])
+            stratified_split_val.split(train_files, labels_train)
         )
+        
+        # Use indices to select final train and validation sets
         val_files = [train_files[i] for i in val_indices]
         train_files_final = [train_files[i] for i in train_indices_final]
+        
         return train_files_final, val_files, test_files
+
 
     def run(self):
         """

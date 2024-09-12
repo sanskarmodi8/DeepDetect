@@ -22,7 +22,9 @@ stages:
       - min_neighbors
       - min_size
     outs:
-      - artifacts/data_preprocessing/preprocessed_data
+      - artifacts/data_preprocessing/train
+      - artifacts/data_preprocessing/test
+      - artifacts/data_preprocessing/val
 
   model_training:
     cmd: python src/DeepfakeDetection/pipeline/stage_03_model_training.py
