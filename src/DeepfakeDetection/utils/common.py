@@ -123,7 +123,7 @@ def save_h5py(
 
 
 @ensure_annotations
-def get_size_in_kbs(path: Path) -> str:
+def get_size_in_kbs(path: Path) -> int:
     """get size in KB
 
     Args:
@@ -133,4 +133,4 @@ def get_size_in_kbs(path: Path) -> str:
         str: size in KB
     """
     size_in_kb = round(os.path.getsize(path) / 1024)
-    return f"~ {size_in_kb} KB"
+    return size_in_kb

@@ -33,6 +33,7 @@ class ModelTrainingConfig:
     val_data_path: Path
     val_labels_path: Path
     model_path: Path
+    ckpt_path: Path
     batch_size: int
     epochs: int
     initial_learning_rate: float
@@ -47,11 +48,8 @@ class ModelTrainingConfig:
     activation: str
     dropout_rate: float
     l2: float
-    rotation: float
-    zoom: float
-    contrast: float
     buffer: int
-    gnoise: float
+    attention_depth: int
 
 
 @dataclass(frozen=True)
@@ -60,5 +58,8 @@ class ModelEvaluationConfig:
     data_path: Path
     labels_path: Path
     model_path: Path
+    ckpt_path: Path
     score: Path
     threshold: float
+    input_shape: list
+    batch_size: int

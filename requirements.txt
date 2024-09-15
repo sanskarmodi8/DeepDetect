@@ -15,6 +15,7 @@ pandas
 
 # Image and Video Processing
 opencv-python
+mediapipe
 pillow
 ffmpeg-python
 

@@ -1,12 +1,12 @@
 stages:
-  data_ingestion:
-    cmd: python src/DeepfakeDetection/pipeline/stage_01_data_ingestion.py
-    deps:
-      - src/DeepfakeDetection/pipeline/stage_01_data_ingestion.py
-      - src/DeepfakeDetection/components/data_ingestion.py
-      - config/config.yaml
-    outs:
-      - artifacts/data_ingestion/data
+  # data_ingestion:
+  #   cmd: python src/DeepfakeDetection/pipeline/stage_01_data_ingestion.py
+  #   deps:
+  #     - src/DeepfakeDetection/pipeline/stage_01_data_ingestion.py
+  #     - src/DeepfakeDetection/components/data_ingestion.py
+  #     - config/config.yaml
+  #   outs:
+  #     - artifacts/data_ingestion/data
 
   data_preprocessing:
     cmd: python src/DeepfakeDetection/pipeline/stage_02_data_preprocessing.py
@@ -46,19 +46,15 @@ stages:
       - batch_size
       - epochs
       - pretrained
-      - pretrained_top
-      - include_top
       - units
       - activation
       - dropout_rate
       - l2
-      - rotation
-      - zoom
-      - contrast
       - buffer
-      - gnoise
+      - attention_depth
     outs:
-      - artifacts/model_training/model.h5
+      - artifacts/model_training/ckpt.weights.h5
+      - artifacts/model_training/saved_model
 
   model_evaluation:
     cmd: python src/DeepfakeDetection/pipeline/stage_04_model_evaluation.py
@@ -66,11 +62,14 @@ stages:
       - src/DeepfakeDetection/pipeline/stage_04_model_evaluation.py
       - src/DeepfakeDetection/components/model_evaluation.py
       - config/config.yaml
-      - artifacts/model_training/model.h5
+      - artifacts/model_training/ckpt.weights.h5
+      - artifacts/model_training/saved_model
       - artifacts/data_preprocessing/test/data/data.h5
       - artifacts/data_preprocessing/test/labels/labels.h5
 
     params:
       - threshold
+      - input_shape
+      - batch_size
     outs:
       - artifacts/model_evaluation/score.json

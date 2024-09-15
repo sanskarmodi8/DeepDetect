@@ -9,7 +9,7 @@ import gdown
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import DataIngestionConfig
-from DeepfakeDetection.utils.common import create_directories
+from DeepfakeDetection.utils.common import create_directories, get_size_in_kbs
 
 
 class DataSourceFactory(ABC):
@@ -225,5 +225,11 @@ class DataIngestion:
         """
         Executes the data ingestion process by handling the data source and sampling videos.
         """
+        if os.path.exists(self.config.final_data_path):
+            logger.info(
+                f"Data path {self.config.final_data_path} already exists. Skipping data ingestion."
+            )
+            return
+        create_directories([self.config.final_data_path])
         data_path = self.factory.handle_data_source(self.config)
         logger.info(f"Data has been sampled. Sampled data path: {data_path}")

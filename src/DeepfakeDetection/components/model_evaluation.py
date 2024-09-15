@@ -8,7 +8,7 @@ import numpy as np
 import tensorflow as tf
 from dotenv import load_dotenv
 from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
-from vit_keras import layers
+from tensorflow.keras.models import load_model
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import ModelEvaluationConfig
@@ -21,74 +21,78 @@ load_dotenv()
 class ModelEvaluation:
     def __init__(self, config: ModelEvaluationConfig):
         self.config = config
-        self.model = self._load_model()  # Load the model
-        self._initialize_mlflow()  # Initialize MLflow
+        self.model = self._load_model()
+        self._initialize_mlflow()
 
     def _initialize_mlflow(self):
         """Initialize MLflow experiment."""
-        mlflow.set_tracking_uri(
-            os.getenv("MLFLOW_TRACKING_URI")
-        )  # Set the MLflow tracking URI
-        mlflow.start_run()  # Start an MLflow run
-        logger.info(
-            "MLflow experiment initialized for evaluation."
-        )  # Log initialization
+        mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
+        if not mlflow.active_run():
+            mlflow.start_run()
+        logger.info("MLflow experiment initialized for evaluation.")
 
     def _load_model(self):
-        """Load the model with custom object scope for 'ClassToken'."""
-        custom_objects = {
-            "ClassToken": layers.ClassToken,  # Register ClassToken layer
-        }
-
-        model = tf.keras.models.load_model(
-            self.config.model_path,
-            custom_objects=custom_objects,  # Pass the custom objects to the loader
-        )
+        """Load the saved model using SavedModel format."""
+        model = tf.saved_model.load(self.config.model_path)
         return model
 
-    def data_generator(self, data_path, labels_path, batch_size):
-        """Generator for loading evaluation data in batches."""
-        with h5py.File(data_path, "r") as data_file, h5py.File(
-            labels_path, "r"
-        ) as labels_file:
-            data = data_file["data"]
-            labels = labels_file["labels"]
-            for i in range(0, len(data), batch_size):
-                yield data[i : i + batch_size], labels[i : i + batch_size]
+    def load_data_generator(self, data_path, labels_path, batch_size):
+        """Load data using a generator to avoid memory overload."""
+
+        def data_generator():
+            with h5py.File(data_path, "r") as data_file, h5py.File(
+                labels_path, "r"
+            ) as labels_file:
+                data = data_file["data"]
+                labels = labels_file["labels"]
+                indices = np.arange(len(data))
+                np.random.shuffle(indices)
+                for i in indices:
+                    x = data[i]
+                    y = labels[i]
+                    if y not in [0, 1]:
+                        logger.warning(f"Invalid label encountered: {y}")
+                        continue
+                    yield x, y
+
+        data_gen = tf.data.Dataset.from_generator(
+            data_generator,
+            output_signature=(
+                tf.TensorSpec(
+                    shape=self.config.input_shape, dtype=tf.float32, name="data"
+                ),
+                tf.TensorSpec(shape=(), dtype=tf.int32, name="labels"),
+            ),
+        )
+
+        return data_gen.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
     def evaluate_model(self):
         """Evaluate the model on the test set using a generator and log metrics to MLflow."""
-        batch_size = 32  # Adjust this based on your memory constraints
-
-        # Create the data generator
-        eval_data_gen = self.data_generator(
-            self.config.data_path, self.config.labels_path, batch_size
+        eval_data = self.load_data_generator(
+            self.config.data_path, self.config.labels_path, self.config.batch_size
         )
 
         # Calculate steps based on the size of the dataset
-        with h5py.File(self.config.data_path, "r") as f:
-            total_samples = f["data"].shape[0]
+        eval_samples = sum(1 for _ in eval_data)
+        steps = eval_samples // self.config.batch_size
 
-        # Include an extra step for any remaining samples that don't fit exactly into a batch
-        steps = (total_samples + batch_size - 1) // batch_size  # This rounds up
+        logger.info(f"Evaluation samples: {eval_samples}")
+        logger.info(f"Evaluation steps: {steps}")
 
         # Make predictions using the generator
-        predictions = self.model.predict(eval_data_gen, steps=steps)
+        predictions = []
+        true_classes = []
+        for x_batch, y_batch in eval_data.take(steps):
+            batch_predictions = self.model(x_batch, training=False)
+            predictions.extend(batch_predictions.numpy().flatten())
+            true_classes.extend(y_batch.numpy())
 
-        # Load the true labels separately to compare
-        eval_labels = load_h5py(Path(self.config.labels_path), "labels")
+        predictions = np.array(predictions)
+        true_classes = np.array(true_classes)
 
-        # Trim predictions if they exceed the number of true samples
-        predictions = predictions[:total_samples]
-
-        # Evaluate metrics (ensure eval_labels is in the correct shape)
-        if len(eval_labels.shape) == 1:  # Binary classification
-            true_classes = eval_labels[
-                :total_samples
-            ]  # Ensure correct number of samples
-            auc = roc_auc_score(true_classes, predictions)  # Calculate AUC
-        else:
-            raise ValueError("Unexpected shape for eval_labels")
+        # Evaluate metrics
+        auc = roc_auc_score(true_classes, predictions)
 
         # Convert predicted probabilities to class labels
         predicted_classes = (predictions > self.config.threshold).astype(int)
@@ -117,9 +121,13 @@ class ModelEvaluation:
 
     def execute(self):
         """Execute the model evaluation."""
-        logger.info("Starting model evaluation...")  # Log the start of evaluation
-        metrics = self.evaluate_model()  # Evaluate the model
-        logger.info(
-            f"Model evaluation completed with metrics: {metrics}"
-        )  # Log the completion of evaluation
-        mlflow.end_run()  # End the MLflow run
+        logger.info("Starting model evaluation...")
+        try:
+            metrics = self.evaluate_model()
+            logger.info(f"Model evaluation completed with metrics: {metrics}")
+
+        except Exception as e:
+            logger.error(f"Error during model evaluation: {str(e)}")
+            raise
+        finally:
+            mlflow.end_run()

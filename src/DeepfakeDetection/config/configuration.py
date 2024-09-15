@@ -21,7 +21,7 @@ class ConfigurationManager:
     def get_data_ingestion_config(self) -> DataIngestionConfig:
         config = self.config.data_ingestion
 
-        create_directories([config.root_dir, config.final_data_path])
+        create_directories([config.root_dir])
 
         data_ingestion_config = DataIngestionConfig(
             root_dir=config.root_dir,
@@ -77,11 +77,9 @@ class ConfigurationManager:
             dropout_rate=self.params.dropout_rate,
             l2=self.params.l2,
             initial_learning_rate=self.params.initial_learning_rate,
-            rotation=self.params.rotation,
-            zoom=self.params.zoom,
-            contrast=self.params.contrast,
             buffer=self.params.buffer,
-            gnoise=self.params.gnoise,
+            attention_depth=self.params.attention_depth,
+            ckpt_path=config.ckpt_path,
         )
 
         return model_training_config
@@ -96,6 +94,9 @@ class ConfigurationManager:
             model_path=config.model_path,
             score=config.score,
             threshold=self.params.threshold,
+            input_shape=self.params.input_shape,
+            batch_size=self.params.batch_size,
+            ckpt_path=config.ckpt_path,
         )
 
         return model_evaluation_config
