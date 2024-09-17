@@ -1,364 +1,276 @@
-import matplotlib
-
-matplotlib.use("Agg")
-import json
 import os
 from abc import ABC, abstractmethod
-from pathlib import Path
 
-import albumentations as A
 import cv2
-import h5py
-import matplotlib.pyplot as plt
-import mlflow
-import mlflow.tensorflow
 import numpy as np
-import tensorflow as tf
-from dotenv import load_dotenv
-from sklearn.utils.class_weight import compute_class_weight
-from tensorflow.keras import layers, models, optimizers, regularizers
-from tensorflow.keras.applications import EfficientNetB2
-from tensorflow.keras.applications.efficientnet import preprocess_input
-from tensorflow.keras.metrics import AUC
+import torch
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from torch import nn
+from torch.utils.data import DataLoader, Dataset
+from torchvision import models, transforms
+from tqdm import tqdm
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import ModelTrainingConfig
-from DeepfakeDetection.utils.common import load_h5py
-
-# Load environment variables (e.g., for MLflow tracking URI)
-load_dotenv()
-
-gpus = tf.config.list_physical_devices("GPU")
-if gpus:
-    try:
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-        logger.info("Memory growth set for GPUs")
-    except RuntimeError as e:
-        logger.info(e)
 
 
-# Strategy Interfaces
-class ModelArchitectureStrategy(ABC):
+# Define your VideoDataset class for loading video data
+class VideoDataset(Dataset):
+    def __init__(self, video_paths, labels, sequence_length=60, transform=None):
+        self.video_paths = video_paths
+        self.labels = labels
+        self.sequence_length = sequence_length
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.video_paths)
+
+    def __getitem__(self, idx):
+        video_path = self.video_paths[idx]
+        label = self.labels[idx]
+
+        frames = []
+        cap = cv2.VideoCapture(video_path)
+
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if frame_count > self.sequence_length:
+            start = np.random.randint(0, frame_count - self.sequence_length)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start)
+
+        for _ in range(self.sequence_length):
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            if self.transform:
+                frame = self.transform(frame)
+            frames.append(frame)
+
+        cap.release()
+
+        # If we don't have enough frames, pad with zeros
+        while len(frames) < self.sequence_length:
+            frames.append(torch.zeros_like(frames[0]))
+
+        return torch.stack(frames), torch.tensor(label, dtype=torch.long)
+
+
+# Abstract model strategy class
+class ModelStrategy(ABC):
     @abstractmethod
-    def build_model(self, input_shape):
-        """Method to define the model architecture"""
+    def build_model(self, config, num_classes=2):
         pass
 
 
-class ModelTrainingStrategy(ABC):
+# Abstract training strategy class
+class TrainingStrategy(ABC):
     @abstractmethod
-    def train(self, model, train_data, val_data, config):
-        """Method to train the model"""
+    def train_epoch(self, model, dataloader, criterion, optimizer, device):
+        pass
+
+    @abstractmethod
+    def validate(self, model, dataloader, criterion, device):
         pass
 
 
-# Concrete Implementation of ModelArchitectureStrategy
-class EfficientNetTransformerArchitecture(ModelArchitectureStrategy):
-    def build_model(self, config):
-        base_model = EfficientNetB2(
-            include_top=False, input_shape=tuple(config.input_shape), weights="imagenet"
-        )
-
-        base_model.trainable = False if config.pretrained else True
-
-        inputs = layers.Input(shape=tuple(config.input_shape))
-        x = preprocess_input(inputs)
-        x = base_model(x)
-        x = layers.GlobalAveragePooling2D()(x)
-
-        # Transformer-like architecture with deeper attention layers
-        x = layers.Reshape((-1, x.shape[-1]))(x)
-        for _ in range(config.attention_depth):
-            attn_output = layers.MultiHeadAttention(
-                num_heads=config.num_heads, key_dim=config.key_dim
-            )(x, x)
-            x = layers.Add()([x, attn_output])
-            x = layers.LayerNormalization(epsilon=1e-6)(x)
-
-        # Feed-forward network
-        ffn = layers.Dense(config.units, activation="relu")(x)
-        ffn = layers.Dense(x.shape[-1])(ffn)
-        x = layers.Add()([x, ffn])
-        x = layers.LayerNormalization(epsilon=1e-6)(x)
-        x = layers.GlobalAveragePooling1D()(x)
-
-        # Final classification head
-        x = layers.Dense(
-            config.units,
-            activation=config.activation,
-            kernel_regularizer=regularizers.l2(config.l2),
-        )(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.Dropout(config.dropout_rate)(x)
-        x = layers.Dense(
-            config.units/2,
-            activation=config.activation,
-            kernel_regularizer=regularizers.l2(config.l2),
-        )(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.Dropout(config.dropout_rate)(x)
-        outputs = layers.Dense(1, activation="sigmoid")(x)
-
-        model = models.Model(inputs, outputs)
-        return model
-
-
-class AugmentedTrainingStrategy(ModelTrainingStrategy):
-    def __init__(self, config):
-        self.config = config
-        self.augmented_samples_saved = False
-
-    def coarse_dropout(self, image, max_holes=8, max_height=70, min_height=30, max_width=70, min_width=30, p=0.5):
-        if tf.random.uniform(()) > p:
-            return image
-
-        height, width, channels = self.config.input_shape
-
-        for _ in range(max_holes):
-            h = tf.random.uniform((), min_height, max_height, dtype=tf.int32)
-            w = tf.random.uniform((), min_width, max_width, dtype=tf.int32)
-
-            x = tf.random.uniform((), 0, width - w, dtype=tf.int32)
-            y = tf.random.uniform((), 0, height - h, dtype=tf.int32)
-
-            mask = tf.pad(
-                tf.ones((h, w, channels), dtype=image.dtype),
-                [[y, height - y - h], [x, width - x - w], [0, 0]],
-            )
-
-            image = image * (1 - mask)
-
-        return image
-
-    def augmentations(self, image):
-        image = tf.image.random_brightness(image, max_delta=0.2)
-        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-        image = tf.image.random_flip_left_right(image)
-        image = tf.image.random_saturation(image, lower=0.8, upper=1.2)
-        image = tf.image.random_hue(image, max_delta=0.2)
-        image = self.coarse_dropout(
-            image, max_holes=5, max_height=60, min_height=20,max_width=60, min_width=20,p=0.7
-        )
-        return image
-
-    def augment(self, image, label):
-        image = self.augmentations(image)
-        noise = tf.random.normal(shape=tf.shape(image), mean=0.0, stddev=0.1)
-        image = tf.clip_by_value(image + noise, 0.0, 255.0)
-        image = tf.image.resize(image, tuple(self.config.input_shape[:2]))
-        return image, label
-
-    def save_augmented_samples(self, images, labels):
-        if self.augmented_samples_saved:
-            return
-
-        for i in range(4):
-            augmented_image, _ = self.augment(images[i], labels[i])
-            cv2.imwrite(
-                f"{self.config.root_dir}/augmented_image_{i}.jpg",
-                cv2.cvtColor(augmented_image.numpy() * 255, cv2.COLOR_RGB2BGR),
-            )
-            cv2.imwrite(
-                f"{self.config.root_dir}/original_image_{i}.jpg",
-                cv2.cvtColor(images[i].numpy() * 255, cv2.COLOR_RGB2BGR),
-            )
-
-        self.augmented_samples_saved = True
-
-    def train(self, model, train_data, val_data, config):
-        for images, labels in train_data.take(1):
-            self.save_augmented_samples(images, labels)
-
-        train_labels = load_h5py(Path(config.train_labels_path), "labels")
-        class_weights = compute_class_weight(
-            class_weight="balanced", classes=np.unique(train_labels), y=train_labels
-        )
-        class_weights = dict(enumerate(class_weights))
-        logger.info(f"Computed Class Weights: {class_weights}")
-
-        optimizer = (
-            optimizers.Adam(
-                learning_rate=optimizers.schedules.ExponentialDecay(
-                    initial_learning_rate=config.initial_learning_rate,
-                    decay_steps=config.decay_steps,
-                    decay_rate=config.decay_rate,
+# ResNext-LSTM Strategy using your custom model
+class ResNextLSTMStrategy(ModelStrategy):
+    def build_model(self, config, num_classes=2):
+        class ResNextLSTMModel(nn.Module):
+            def __init__(
+                self,
+                num_classes,
+                latent_dim=2048,
+                lstm_layers=1,
+                hidden_dim=2048,
+                bidirectional=False,
+            ):
+                super(ResNextLSTMModel, self).__init__()
+                model = models.resnext50_32x4d(pretrained=True)  # Residual Network CNN
+                self.model = nn.Sequential(*list(model.children())[:-2])
+                self.lstm = nn.LSTM(
+                    latent_dim, hidden_dim, lstm_layers, bidirectional=bidirectional
                 )
-            )
-            if not config.const_lr
-            else optimizers.Adam(learning_rate=config.initial_learning_rate)
-        )
+                self.relu = nn.LeakyReLU()
+                self.dp = nn.Dropout(0.4)
+                self.linear1 = nn.Linear(2048, num_classes)
+                self.avgpool = nn.AdaptiveAvgPool2d(1)
 
-        model.compile(
-            optimizer=optimizer,
-            loss="binary_crossentropy",
-            metrics=["accuracy", AUC(name="auc")],
-        )
+            def forward(self, x):
+                batch_size, seq_length, c, h, w = x.shape
+                x = x.view(batch_size * seq_length, c, h, w)
+                fmap = self.model(x)
+                x = self.avgpool(fmap)
+                x = x.view(batch_size, seq_length, 2048)
+                x_lstm, _ = self.lstm(x, None)
+                return fmap, self.dp(self.linear1(torch.mean(x_lstm, dim=1)))
 
-        callbacks = [
-            tf.keras.callbacks.ModelCheckpoint(
-                os.path.join(config.ckpt_path),
-                monitor="val_auc",
-                save_best_only=True,
-                save_weights_only=True,
-                mode="max",
-            ),
-            # tf.keras.callbacks.EarlyStopping(
-            #     monitor="val_auc", patience=20, mode="max", restore_best_weights=True
-            # ),
-            tf.keras.callbacks.ReduceLROnPlateau(
-                monitor="val_auc", factor=0.5, patience=5, min_lr=1e-6
-            ),
-        ]
-
-        # Apply augmentation to the training data
-        train_data = train_data.map(self.augment, num_parallel_calls=tf.data.AUTOTUNE)
-
-        if config.buffer > 0:
-            train_data = train_data.shuffle(buffer_size=config.buffer)
-
-        # Calculate steps_per_epoch and validation_steps
-        train_samples, val_samples = sum(1 for _ in train_data), sum(
-            1 for _ in val_data
-        )
-        steps_per_epoch = train_samples // config.batch_size
-        validation_steps = val_samples // config.batch_size
-
-        logger.info(f"Training samples: {train_samples}")
-        logger.info(f"Validation samples: {val_samples}")
-        logger.info(f"Steps per epoch: {steps_per_epoch}")
-        logger.info(f"Validation steps: {validation_steps}")
-
-        history = model.fit(
-            train_data.repeat(),
-            validation_data=val_data.repeat(),
-            epochs=config.epochs,
-            steps_per_epoch=steps_per_epoch,
-            validation_steps=validation_steps,
-            class_weight=class_weights,
-            callbacks=callbacks,
-        )
-
-        return history
+        return ResNextLSTMModel(num_classes=num_classes)
 
 
-# ModelTraining Class
+# Standard training strategy for training and validation
+class StandardTrainingStrategy(TrainingStrategy):
+    def train_epoch(self, model, dataloader, criterion, optimizer, device):
+        model.train()
+        running_loss = 0.0
+        correct = 0
+        total = 0
+
+        for inputs, labels in tqdm(dataloader, desc="Training"):
+            inputs, labels = inputs.to(device), labels.to(device)
+
+            optimizer.zero_grad()
+            _, outputs = model(inputs)  # Using only the classifier output
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += labels.size(0)
+            correct += predicted.eq(labels).sum().item()
+
+        epoch_loss = running_loss / len(dataloader)
+        epoch_acc = correct / total
+        return epoch_loss, epoch_acc
+
+    def validate(self, model, dataloader, criterion, device):
+        model.eval()
+        running_loss = 0.0
+        correct = 0
+        total = 0
+        all_preds = []
+        all_labels = []
+
+        with torch.no_grad():
+            for inputs, labels in tqdm(dataloader, desc="Validating"):
+                inputs, labels = inputs.to(device), labels.to(device)
+
+                _, outputs = model(inputs)  # Using only the classifier output
+                loss = criterion(outputs, labels)
+
+                running_loss += loss.item()
+                _, predicted = outputs.max(1)
+                total += labels.size(0)
+                correct += predicted.eq(labels).sum().item()
+
+                all_preds.extend(predicted.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+
+        epoch_loss = running_loss / len(dataloader)
+        epoch_acc = correct / total
+        precision = precision_score(all_labels, all_preds, average="weighted")
+        recall = recall_score(all_labels, all_preds, average="weighted")
+        f1 = f1_score(all_labels, all_preds, average="weighted")
+
+        return epoch_loss, epoch_acc, precision, recall, f1
+
+
+# ModelTraining class that coordinates the process
 class ModelTraining:
     def __init__(self, config: ModelTrainingConfig):
+        self.model_strategy = ResNextLSTMStrategy()
+        self.training_strategy = StandardTrainingStrategy()
         self.config = config
-        self.training_strategy = AugmentedTrainingStrategy(self.config)
-        self.architecture_strategy = EfficientNetTransformerArchitecture()
-        self.model = self._build_model()
-        self._initialize_mlflow()
-        self._prepare_for_resume()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def _initialize_mlflow(self):
-        """Initialize MLflow experiment."""
-        mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
-        if not mlflow.active_run():
-            mlflow.start_run()
-        logger.info("MLflow experiment initialized.")
+    def load_video_paths(self, data_path, split):
+        video_paths = []
+        labels = []
+        split_path = os.path.join(data_path, split)
 
-    def _build_model(self):
-        """Builds and returns the model."""
-        model = self.architecture_strategy.build_model(config=self.config)
-        return model
+        # Load original (real) videos
+        original_path = os.path.join(split_path, "original")
+        for video in os.listdir(original_path):
+            if video.endswith(".mp4"):
+                video_paths.append(os.path.join(original_path, video))
+                labels.append(0)  # 0 for real
 
-    def _prepare_for_resume(self):
-        """Load weights from the last checkpoint if available."""
-        checkpoint_path = os.path.join(self.config.ckpt_path)
-        if Path(checkpoint_path).exists():
-            logger.info("Loading model weights from the latest checkpoint.")
-            self.model.load_weights(checkpoint_path)
+        # Load fake videos
+        fake_path = os.path.join(split_path, "fake")
+        for video in os.listdir(fake_path):
+            if video.endswith(".mp4"):
+                video_paths.append(os.path.join(fake_path, video))
+                labels.append(1)  # 1 for fake
 
-    def load_data_generator(self, data_path, labels_path, batch_size):
-        """Load data using a generator to avoid memory overload."""
+        return video_paths, labels
 
-        def data_generator():
-            with h5py.File(data_path, "r") as data_file, h5py.File(
-                labels_path, "r"
-            ) as labels_file:
-                data = data_file["data"]
-                labels = labels_file["labels"]
-                indices = np.arange(len(data))
-                np.random.shuffle(indices)
-                for i in indices:
-                    x = data[i]
-                    y = labels[i]
-                    if y not in [0, 1]:
-                        logger.warning(f"Invalid label encountered: {y}")
-                        continue
-                    yield x, y
-
-        data_gen = tf.data.Dataset.from_generator(
-            data_generator,
-            output_signature=(
-                tf.TensorSpec(
-                    shape=self.config.input_shape, dtype=tf.float32, name="data"
+    def prepare_data(self):
+        transform = transforms.Compose(
+            [
+                transforms.ToPILImage(),
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
                 ),
-                tf.TensorSpec(shape=(), dtype=tf.int32, name="labels"),
-            ),
+            ]
         )
 
-        return data_gen.batch(batch_size).prefetch(tf.data.AUTOTUNE)
-
-    def load_data(self):
-        """Load training and validation data using generators."""
-        train_dataset = self.load_data_generator(
-            self.config.train_data_path,
-            self.config.train_labels_path,
-            self.config.batch_size,
+        train_videos, train_labels = self.load_video_paths(
+            self.config.data_path, "train"
         )
-        val_dataset = self.load_data_generator(
-            self.config.val_data_path,
-            self.config.val_labels_path,
-            self.config.batch_size,
+        val_videos, val_labels = self.load_video_paths(self.config.data_path, "val")
+
+        train_dataset = VideoDataset(
+            train_videos,
+            train_labels,
+            sequence_length=self.config.sequence_length,
+            transform=transform,
+        )
+        val_dataset = VideoDataset(
+            val_videos,
+            val_labels,
+            sequence_length=self.config.sequence_length,
+            transform=transform,
         )
 
-        # Check class balance
-        train_labels = load_h5py(Path(self.config.train_labels_path), "labels")
-        val_labels = load_h5py(Path(self.config.val_labels_path), "labels")
+        self.train_loader = DataLoader(
+            train_dataset,
+            batch_size=self.config.batch_size,
+            shuffle=True,
+            num_workers=self.config.num_workers,
+        )
+        self.val_loader = DataLoader(
+            val_dataset,
+            batch_size=self.config.batch_size,
+            shuffle=False,
+            num_workers=self.config.num_workers,
+        )
 
-        logger.info(f"Train class distribution: {np.bincount(train_labels)}")
-        logger.info(f"Validation class distribution: {np.bincount(val_labels)}")
+    def train(self):
+        model = self.model_strategy.build_model(self.config).to(self.device)
+        criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=self.config.learning_rate)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=0.1, patience=5, verbose=True
+        )
 
-        return train_dataset, val_dataset
-
-    def execute(self):
-        """Execute the model training and saving."""
-        logger.info("Starting model training...")
-
-        try:
-            # Load training and validation data
-            train_data, val_data = self.load_data()
-
-            # Verify data and get a sample for signature inference
-            for x_batch, y_batch in train_data.take(1):
-                logger.info(f"Sample input shape: {x_batch.shape}")
-                logger.info(f"Sample label shape: {y_batch.shape}")
-
-            # Train the model
-            history = self.training_strategy.train(
-                self.model,
-                train_data,
-                val_data,
-                self.config,
+        best_val_acc = 0.0
+        for epoch in range(self.config.epochs):
+            train_loss, train_acc = self.training_strategy.train_epoch(
+                model, self.train_loader, criterion, optimizer, self.device
+            )
+            val_loss, val_acc, precision, recall, f1 = self.training_strategy.validate(
+                model, self.val_loader, criterion, self.device
             )
 
-            logger.info(f"History: {history.history}")
+            scheduler.step(val_loss)
 
-            # Load the best weights
-            self.model.load_weights(self.config.ckpt_path)
+            logger.info(f"Epoch {epoch+1}/{self.config.epochs}")
+            logger.info(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}")
+            logger.info(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+            logger.info(
+                f"Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}"
+            )
 
-            # Save the entire model using SavedModel format and log weights in mlflow
-            saved_model_path = self.config.model_path
-            tf.saved_model.save(self.model, saved_model_path)
-            logger.info(f"Saved model to {saved_model_path}")
-            mlflow.log_artifact(self.config.ckpt_path, "model_weights")
+            if val_acc > best_val_acc:
+                best_val_acc = val_acc
+                torch.save(model.state_dict(), self.config.model_path)
+                logger.info("Model saved!")
 
-        except Exception as e:
-            logger.error(f"Error during training: {str(e)}")
-            raise
+        logger.info("Training completed!")
 
-        finally:
-            mlflow.end_run()
+    def execute(self):
+        self.prepare_data()
+        self.train()

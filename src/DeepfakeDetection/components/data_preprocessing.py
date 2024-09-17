@@ -1,12 +1,9 @@
-import json
 import os
 from abc import ABC, abstractmethod
-from pathlib import Path
 
 import cv2
-import numpy as np
-import torch
 import face_recognition
+import numpy as np
 from sklearn.model_selection import StratifiedShuffleSplit
 from tqdm import tqdm
 
@@ -28,6 +25,7 @@ class FrameExtractionStrategy(ABC):
             np.ndarray: Array of frames with shape (num_frames, height, width, channels).
         """
         pass
+
 
 class FaceDetectionStrategy(ABC):
     @abstractmethod
@@ -61,6 +59,7 @@ class OpenCVFrameExtraction(FrameExtractionStrategy):
             yield image
             success, image = vidobj.read()
 
+
 class FaceRecognitionStrategy(FaceDetectionStrategy):
     def detect_faces(self, frames):
         """
@@ -73,6 +72,7 @@ class FaceRecognitionStrategy(FaceDetectionStrategy):
             A list of lists of face bounding boxes, where each inner list is a list of bounding boxes for a frame.
         """
         return face_recognition.batch_face_locations(frames)
+
 
 class DataPreprocessing:
     def __init__(self, config: DataPreprocessingConfig):
@@ -95,11 +95,12 @@ class DataPreprocessing:
             frames (list): A list of numpy arrays, where each array is a frame from a video.
         """
         # Use 'mp4v' for MP4 files, which is widely supported
-        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), self.config.fps, (112, 112))
+        out = cv2.VideoWriter(
+            output_path, cv2.VideoWriter_fourcc(*"mp4v"), self.config.fps, (112, 112)
+        )
         for frame in frames:
             out.write(frame)
         out.release()
-
 
     def process_video(self, video_file, output_dir):
         """
@@ -109,9 +110,9 @@ class DataPreprocessing:
             video_file (tuple): Tuple containing the folder name and the video file name.
             output_dir (str): Directory where the output video will be saved.
         """
-        
+
         out_path = os.path.join(output_dir, video_file)
-        
+
         # Check if the file already exists to avoid duplication
         if os.path.exists(out_path):
             print(f"File already exists: {out_path}")
@@ -120,7 +121,9 @@ class DataPreprocessing:
         # Extract frames
         frames = []
         processed_frames = []
-        for idx, frame in enumerate(self.frame_extraction_strategy.extract_frames(video_file)):
+        for idx, frame in enumerate(
+            self.frame_extraction_strategy.extract_frames(video_file)
+        ):
             if idx <= self.config.max_frames:  # Limiting the number of frames
                 frames.append(frame)
                 # Process batches of 4 frames
@@ -129,7 +132,10 @@ class DataPreprocessing:
                     for i, face in enumerate(faces):
                         if len(face) > 0:
                             top, right, bottom, left = face[0]
-                            cropped_face = cv2.resize(frames[i][top:bottom, left:right, :], tuple(self.config.resolution))
+                            cropped_face = cv2.resize(
+                                frames[i][top:bottom, left:right, :],
+                                tuple(self.config.resolution),
+                            )
                             processed_frames.append(cropped_face)
                     frames = []  # Reset frames list after processing
 
@@ -146,27 +152,30 @@ class DataPreprocessing:
             video_files (list): List of video file paths to process.
         """
         # Create directories for 'original' and 'fake' videos within each split directory
-        output_original_dir = os.path.join(self.config.root_dir, split_name, 'original')
-        output_fake_dir = os.path.join(self.config.root_dir, split_name, 'fake')
+        output_original_dir = os.path.join(self.config.root_dir, split_name, "original")
+        output_fake_dir = os.path.join(self.config.root_dir, split_name, "fake")
         create_directories([output_original_dir, output_fake_dir])
 
         for video_file in tqdm(video_files, desc=f"Processing {split_name} split"):
             folder, file_name = video_file
 
             # Check whether the video is 'original' or 'fake' based on the folder name
-            if folder == 'original':
+            if folder == "original":
                 output_dir = output_original_dir
-            elif folder == 'manipulated':
+            elif folder == "manipulated":
                 output_dir = output_fake_dir
             else:
                 raise ValueError(f"Unexpected folder name: {folder}")
 
             self.process_video(file_name, output_dir)
 
-
-    def stratified_split(self, video_files: list, test_size: float = 0.15, val_size: float = 0.15):
+    def stratified_split(
+        self, video_files: list, test_size: float = 0.15, val_size: float = 0.15
+    ):
         labels = np.array([file[0] for file in video_files])
-        stratified_split = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=42)
+        stratified_split = StratifiedShuffleSplit(
+            n_splits=1, test_size=test_size, random_state=42
+        )
 
         train_indices, test_indices = next(stratified_split.split(video_files, labels))
         train_files = [video_files[i] for i in train_indices]
@@ -174,9 +183,13 @@ class DataPreprocessing:
 
         val_size_adjusted = val_size / (1 - test_size)
         labels_train = labels[train_indices]
-        stratified_split_val = StratifiedShuffleSplit(n_splits=1, test_size=val_size_adjusted, random_state=42)
+        stratified_split_val = StratifiedShuffleSplit(
+            n_splits=1, test_size=val_size_adjusted, random_state=42
+        )
 
-        train_indices_final, val_indices = next(stratified_split_val.split(train_files, labels_train))
+        train_indices_final, val_indices = next(
+            stratified_split_val.split(train_files, labels_train)
+        )
 
         val_files = [train_files[i] for i in val_indices]
         train_files_final = [train_files[i] for i in train_indices_final]

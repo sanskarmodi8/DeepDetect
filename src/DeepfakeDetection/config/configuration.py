@@ -44,7 +44,6 @@ class ConfigurationManager:
             max_frames=self.params.max_frames,
             fps=self.params.fps,
             resolution=self.params.resolution,
-            
         )
 
         return data_preprocessing_config
@@ -53,30 +52,17 @@ class ConfigurationManager:
         config = self.config.model_training
         create_directories([config.root_dir])
         model_training_config = ModelTrainingConfig(
-            const_lr=self.params.const_lr,
             root_dir=config.root_dir,
-            train_data_path=config.train_data_path,
-            train_labels_path=config.train_labels_path,
-            val_data_path=config.val_data_path,
-            val_labels_path=config.val_labels_path,
-            model_path=config.model_path,
-            batch_size=self.params.batch_size,
-            epochs=self.params.epochs,
-            learning_rate_decay=self.params.learning_rate_decay,
-            decay_steps=self.params.decay_steps,
-            decay_rate=self.params.decay_rate,
+            data_path=config.data_path,
             input_shape=self.params.input_shape,
-            pretrained=self.params.pretrained,
-            num_heads=self.params.num_heads,
-            key_dim=self.params.key_dim,
-            units=self.params.units,
-            activation=self.params.activation,
+            batch_size=self.params.batch_size,
+            sequence_length=self.params.sequence_length,
+            num_workers=self.params.num_workers,
             dropout_rate=self.params.dropout_rate,
-            l2=self.params.l2,
-            initial_learning_rate=self.params.initial_learning_rate,
-            buffer=self.params.buffer,
-            attention_depth=self.params.attention_depth,
-            ckpt_path=config.ckpt_path,
+            units=self.params.units,
+            learning_rate=self.params.learning_rate,
+            epochs=self.params.epochs,
+            model_path=config.model_path,
         )
 
         return model_training_config
@@ -87,13 +73,12 @@ class ConfigurationManager:
         model_evaluation_config = ModelEvaluationConfig(
             root_dir=config.root_dir,
             data_path=config.data_path,
-            labels_path=config.labels_path,
             model_path=config.model_path,
             score=config.score,
-            threshold=self.params.threshold,
             input_shape=self.params.input_shape,
             batch_size=self.params.batch_size,
-            ckpt_path=config.ckpt_path,
+            num_workers=self.params.num_workers,
+            sequence_length=self.params.sequence_length,
         )
 
         return model_evaluation_config

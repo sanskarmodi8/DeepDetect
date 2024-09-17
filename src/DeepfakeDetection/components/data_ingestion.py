@@ -126,7 +126,6 @@ class FaceForensicsplusplusFactory(DataFactory):
         )
 
 
-
 class DataIngestion:
     """
     Manages the data ingestion process.
@@ -141,7 +140,6 @@ class DataIngestion:
         """
         self.config = config
         self.factory = FaceForensicsplusplusFactory()
-
 
     def run(self):
         """

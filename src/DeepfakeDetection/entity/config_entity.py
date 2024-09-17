@@ -22,40 +22,26 @@ class DataPreprocessingConfig:
 
 @dataclass(frozen=True)
 class ModelTrainingConfig:
-    const_lr: bool
     root_dir: Path
-    train_data_path: Path
-    train_labels_path: Path
-    val_data_path: Path
-    val_labels_path: Path
-    model_path: Path
-    ckpt_path: Path
-    batch_size: int
-    epochs: int
-    initial_learning_rate: float
-    learning_rate_decay: float
-    decay_steps: int
-    decay_rate: float
+    data_path: Path
     input_shape: list
-    pretrained: bool
-    num_heads: int
-    key_dim: int
-    units: int
-    activation: str
+    batch_size: int
+    sequence_length: int
+    num_workers: int
     dropout_rate: float
-    l2: float
-    buffer: int
-    attention_depth: int
+    units: int
+    learning_rate: float
+    epochs: int
+    model_path: Path
 
 
 @dataclass(frozen=True)
 class ModelEvaluationConfig:
     root_dir: Path
     data_path: Path
-    labels_path: Path
     model_path: Path
-    ckpt_path: Path
     score: Path
-    threshold: float
     input_shape: list
     batch_size: int
+    num_workers: int
+    sequence_length: int

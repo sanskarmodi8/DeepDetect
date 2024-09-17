@@ -30,29 +30,19 @@ stages:
       - src/DeepfakeDetection/pipeline/stage_03_model_training.py
       - src/DeepfakeDetection/components/model_training.py
       - config/config.yaml
-      - artifacts/data_preprocessing/train/data/data.h5
-      - artifacts/data_preprocessing/train/labels/labels.h5
-      - artifacts/data_preprocessing/val/data/data.h5
-      - artifacts/data_preprocessing/val/labels/labels.h5
+      - artifacts/data_preprocessing/train
+      - artifacts/data_preprocessing/val
     params:
-      - const_lr
       - input_shape
-      - initial_learning_rate
-      - learning_rate_decay
-      - decay_steps
-      - decay_rate
       - batch_size
-      - epochs
-      - pretrained
-      - units
-      - activation
+      - sequence_length
+      - num_workers
       - dropout_rate
-      - l2
-      - buffer
-      - attention_depth
+      - units
+      - learning_rate
+      - epochs
     outs:
-      - artifacts/model_training/ckpt.weights.h5
-      - artifacts/model_training/saved_model
+      - artifacts/model_training/model.pt
 
   model_evaluation:
     cmd: python src/DeepfakeDetection/pipeline/stage_04_model_evaluation.py
@@ -60,14 +50,13 @@ stages:
       - src/DeepfakeDetection/pipeline/stage_04_model_evaluation.py
       - src/DeepfakeDetection/components/model_evaluation.py
       - config/config.yaml
-      - artifacts/model_training/ckpt.weights.h5
-      - artifacts/model_training/saved_model
-      - artifacts/data_preprocessing/test/data/data.h5
-      - artifacts/data_preprocessing/test/labels/labels.h5
+      - artifacts/model_training/model.pt
+      - artifacts/data_preprocessing/test
 
     params:
-      - threshold
       - input_shape
       - batch_size
+      - sequence_length
+      - num_workers
     outs:
       - artifacts/model_evaluation/score.json

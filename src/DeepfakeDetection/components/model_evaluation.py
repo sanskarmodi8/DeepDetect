@@ -1,131 +1,208 @@
 import os
+from abc import ABC, abstractmethod
 from pathlib import Path
 
-import h5py
+import cv2
 import mlflow
-import mlflow.tensorflow
 import numpy as np
-import tensorflow as tf
-from dotenv import load_dotenv
-from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
-from tensorflow.keras.models import load_model
+import torch
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
+from torch import nn
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
+from tqdm import tqdm
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import ModelEvaluationConfig
-from DeepfakeDetection.utils.common import load_h5py, save_json
+from DeepfakeDetection.utils.common import save_json
 
-# Load environment variables from the .env file
-load_dotenv()
+
+class VideoDataset(Dataset):
+    def __init__(self, video_paths, labels, sequence_length=60, transform=None):
+        self.video_paths = video_paths
+        self.labels = labels
+        self.sequence_length = sequence_length
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.video_paths)
+
+    def __getitem__(self, idx):
+        video_path = self.video_paths[idx]
+        label = self.labels[idx]
+
+        frames = []
+        cap = cv2.VideoCapture(video_path)
+
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if frame_count > self.sequence_length:
+            start = np.random.randint(0, frame_count - self.sequence_length)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start)
+
+        for _ in range(self.sequence_length):
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            if self.transform:
+                frame = self.transform(frame)
+            frames.append(frame)
+
+        cap.release()
+
+        while len(frames) < self.sequence_length:
+            frames.append(torch.zeros_like(frames[0]))
+
+        return torch.stack(frames), torch.tensor(label, dtype=torch.long)
+
+
+class EvaluationStrategy(ABC):
+    @abstractmethod
+    def evaluate(self, model, dataloader, criterion, device):
+        pass
+
+
+class ResNextLSTMEvaluationStrategy(EvaluationStrategy):
+    def evaluate(self, model, dataloader, criterion, device):
+        model.eval()
+        running_loss = 0.0
+        all_preds = []
+        all_labels = []
+
+        with torch.no_grad():
+            for inputs, labels in tqdm(dataloader, desc="Evaluating"):
+                inputs, labels = inputs.to(device), labels.to(device)
+
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
+
+                running_loss += loss.item()
+                _, predicted = outputs.max(1)
+
+                all_preds.extend(
+                    outputs.cpu().numpy()[:, 1]
+                )  # Probability of being fake
+                all_labels.extend(labels.cpu().numpy())
+
+        epoch_loss = running_loss / len(dataloader)
+        accuracy = accuracy_score(all_labels, (np.array(all_preds) > 0.5).astype(int))
+        precision = precision_score(
+            all_labels, (np.array(all_preds) > 0.5).astype(int), average="weighted"
+        )
+        recall = recall_score(
+            all_labels, (np.array(all_preds) > 0.5).astype(int), average="weighted"
+        )
+        f1 = f1_score(
+            all_labels, (np.array(all_preds) > 0.5).astype(int), average="weighted"
+        )
+        auc = roc_auc_score(all_labels, all_preds)
+
+        return {
+            "loss": epoch_loss,
+            "accuracy": accuracy,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "auc": auc,
+        }
 
 
 class ModelEvaluation:
     def __init__(self, config: ModelEvaluationConfig):
         self.config = config
-        self.model = self._load_model()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.evaluation_strategy = (
+            ResNextLSTMEvaluationStrategy()
+        )  # Updated to reflect the new model strategy
         self._initialize_mlflow()
 
     def _initialize_mlflow(self):
-        """Initialize MLflow experiment."""
         mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
         if not mlflow.active_run():
             mlflow.start_run()
         logger.info("MLflow experiment initialized for evaluation.")
 
-    def _load_model(self):
-        """Load the saved model using SavedModel format."""
-        model = tf.saved_model.load(self.config.model_path)
+    def load_model(self):
+        # Assuming the ResNextLSTM model has been saved as a PyTorch .pt or .pth file
+        model = torch.load(self.config.model_path, map_location=self.device)
+        model.eval()
         return model
 
-    def load_data_generator(self, data_path, labels_path, batch_size):
-        """Load data using a generator to avoid memory overload."""
+    def load_video_paths(self, data_path):
+        video_paths = []
+        labels = []
 
-        def data_generator():
-            with h5py.File(data_path, "r") as data_file, h5py.File(
-                labels_path, "r"
-            ) as labels_file:
-                data = data_file["data"]
-                labels = labels_file["labels"]
-                indices = np.arange(len(data))
-                np.random.shuffle(indices)
-                for i in indices:
-                    x = data[i]
-                    y = labels[i]
-                    if y not in [0, 1]:
-                        logger.warning(f"Invalid label encountered: {y}")
-                        continue
-                    yield x, y
+        original_path = os.path.join(data_path, "original")
+        for video in os.listdir(original_path):
+            if video.endswith(".mp4"):
+                video_paths.append(os.path.join(original_path, video))
+                labels.append(0)  # 0 for real
 
-        data_gen = tf.data.Dataset.from_generator(
-            data_generator,
-            output_signature=(
-                tf.TensorSpec(
-                    shape=self.config.input_shape, dtype=tf.float32, name="data"
+        fake_path = os.path.join(data_path, "fake")
+        for video in os.listdir(fake_path):
+            if video.endswith(".mp4"):
+                video_paths.append(os.path.join(fake_path, video))
+                labels.append(1)  # 1 for fake
+
+        return video_paths, labels
+
+    def prepare_data(self):
+        transform = transforms.Compose(
+            [
+                transforms.ToPILImage(),
+                transforms.Resize(tuple(self.config.input_shape[:2])),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
                 ),
-                tf.TensorSpec(shape=(), dtype=tf.int32, name="labels"),
-            ),
+            ]
         )
 
-        return data_gen.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+        test_videos, test_labels = self.load_video_paths(self.config.data_path)
+        test_dataset = VideoDataset(
+            test_videos,
+            test_labels,
+            sequence_length=self.config.sequence_length,
+            transform=transform,
+        )
+        self.test_loader = DataLoader(
+            test_dataset,
+            batch_size=self.config.batch_size,
+            shuffle=False,
+            num_workers=self.config.num_workers,
+        )
 
     def evaluate_model(self):
-        """Evaluate the model on the test set using a generator and log metrics to MLflow."""
-        eval_data = self.load_data_generator(
-            self.config.data_path, self.config.labels_path, self.config.batch_size
+        model = self.load_model()
+        criterion = nn.CrossEntropyLoss()
+
+        metrics = self.evaluation_strategy.evaluate(
+            model, self.test_loader, criterion, self.device
         )
 
-        # Calculate steps based on the size of the dataset
-        eval_samples = sum(1 for _ in eval_data)
-        steps = eval_samples // self.config.batch_size
+        logger.info(f"Evaluation metrics: {metrics}")
 
-        logger.info(f"Evaluation samples: {eval_samples}")
-        logger.info(f"Evaluation steps: {steps}")
-
-        # Make predictions using the generator
-        predictions = []
-        true_classes = []
-        for x_batch, y_batch in eval_data.take(steps):
-            batch_predictions = self.model(x_batch, training=False)
-            predictions.extend(batch_predictions.numpy().flatten())
-            true_classes.extend(y_batch.numpy())
-
-        predictions = np.array(predictions)
-        true_classes = np.array(true_classes)
-
-        # Evaluate metrics
-        auc = roc_auc_score(true_classes, predictions)
-
-        # Convert predicted probabilities to class labels
-        predicted_classes = (predictions > self.config.threshold).astype(int)
-
-        # Calculate accuracy
-        accuracy = accuracy_score(true_classes, predicted_classes)
-        logger.info(f"Evaluation accuracy: {accuracy}")
-
-        # Generate classification report
-        report = classification_report(
-            true_classes, predicted_classes, output_dict=True
-        )
-        logger.info(f"Classification Report: {report}")
-
-        # Save the evaluation metrics
-        metrics = {"accuracy": accuracy, "auc": auc, "classification_report": report}
         save_json(Path(self.config.score), metrics)
         logger.info(f"Evaluation metrics saved to {self.config.score}")
 
-        # Log metrics to MLflow
-        mlflow.log_metric("accuracy", accuracy)
-        mlflow.log_metric("auc", auc)
+        for metric_name, metric_value in metrics.items():
+            mlflow.log_metric(metric_name, metric_value)
         mlflow.log_artifact(str(Path(self.config.score)))
 
         return metrics
 
     def execute(self):
-        """Execute the model evaluation."""
         logger.info("Starting model evaluation...")
         try:
+            self.prepare_data()
             metrics = self.evaluate_model()
             logger.info(f"Model evaluation completed with metrics: {metrics}")
-
         except Exception as e:
             logger.error(f"Error during model evaluation: {str(e)}")
             raise
