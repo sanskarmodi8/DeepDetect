@@ -42,12 +42,9 @@ class ConfigurationManager:
             data_path=config.data_path,
             output_data=config.output_data,
             max_frames=self.params.max_frames,
-            target_size=self.params.target_size,
-            min_size=self.params.min_size,
-            min_neighbors=self.params.min_neighbors,
-            scale_factor=self.params.scale_factor,
-            scene_change_threshold=self.params.scene_change_threshold,
-            mtcnn_thres=self.params.mtcnn_thres,
+            fps=self.params.fps,
+            resolution=self.params.resolution,
+            
         )
 
         return data_preprocessing_config

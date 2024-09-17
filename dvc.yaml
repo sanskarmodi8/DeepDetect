@@ -8,23 +8,21 @@ stages:
   #   outs:
   #     - artifacts/data_ingestion/data
 
-  data_preprocessing:
-    cmd: python src/DeepfakeDetection/pipeline/stage_02_data_preprocessing.py
-    deps:
-      - src/DeepfakeDetection/pipeline/stage_02_data_preprocessing.py
-      - src/DeepfakeDetection/components/data_preprocessing.py
-      - config/config.yaml
-      - artifacts/data_ingestion/data
-    params:
-      - max_frames
-      - target_size
-      - scale_factor
-      - min_neighbors
-      - min_size
-    outs:
-      - artifacts/data_preprocessing/train
-      - artifacts/data_preprocessing/test
-      - artifacts/data_preprocessing/val
+  # data_preprocessing:
+  #   cmd: python src/DeepfakeDetection/pipeline/stage_02_data_preprocessing.py
+  #   deps:
+  #     - src/DeepfakeDetection/pipeline/stage_02_data_preprocessing.py
+  #     - src/DeepfakeDetection/components/data_preprocessing.py
+  #     - config/config.yaml
+  #     - artifacts/data_ingestion/data
+  #   params:
+  #     - max_frames
+  #     - fps
+  #     - resolution
+  #   outs:
+  #     - artifacts/data_preprocessing/train
+  #     - artifacts/data_preprocessing/test
+  #     - artifacts/data_preprocessing/val
 
   model_training:
     cmd: python src/DeepfakeDetection/pipeline/stage_03_model_training.py

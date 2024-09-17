@@ -16,6 +16,7 @@ pandas
 # Image and Video Processing
 opencv-python
 mediapipe
+face_recognition
 pillow
 ffmpeg-python
 

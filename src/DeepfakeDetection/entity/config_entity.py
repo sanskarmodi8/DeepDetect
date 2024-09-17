@@ -16,12 +16,8 @@ class DataPreprocessingConfig:
     data_path: Path
     output_data: Path
     max_frames: int
-    target_size: list
-    min_size: list
-    min_neighbors: int
-    scale_factor: float
-    scene_change_threshold: float
-    mtcnn_thres: list
+    fps: int
+    resolution: list
 
 
 @dataclass(frozen=True)

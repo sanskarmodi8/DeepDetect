@@ -1,31 +1,27 @@
 # data ingestion
-num_videos: 400
+num_videos: 1200
 
 # preprocessing
-mtcnn_thres: [0.95, 0.95, 0.95]
-max_frames: 100
-scene_change_threshold: 0.05
-target_size: [224, 224]
-scale_factor: 1.1
-min_neighbors: 5
-min_size: [30,30]
+fps: 30
+max_frames: 150
+resolution: [112, 112]
 
 # training and evaluation
-const_lr: True
-input_shape: [224, 224, 3]
-initial_learning_rate: 0.000001
-learning_rate_decay: 0.9
+const_lr: False
+input_shape: [260, 260, 3]
+initial_learning_rate: 0.0001
+learning_rate_decay: 0.001
 decay_steps: 5000
 decay_rate: 0.9
-batch_size: 16
-epochs: 500
+batch_size: 4
+epochs: 20
 pretrained: False
 num_heads: 8
 key_dim: 512
 units: 512
 activation: relu
-dropout_rate: 0.3
-l2: 0.03
-buffer: 1000
-attention_depth: 4
+dropout_rate: 0.2
+l2: 0.02
+attention_depth: 6
 threshold: 0.5
+buffer: 800

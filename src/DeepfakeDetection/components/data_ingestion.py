@@ -1,26 +1,23 @@
 import os
 import random
 import shutil
-import zipfile
 from abc import ABC, abstractmethod
 from pathlib import Path
-
-import gdown
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import DataIngestionConfig
 from DeepfakeDetection.utils.common import create_directories, get_size_in_kbs
 
 
-class DataSourceFactory(ABC):
+class DataFactory(ABC):
     """
-    Abstract base class for creating data source handlers.
+    Abstract base class for creating data handlers.
     """
 
     @abstractmethod
-    def handle_data_source(self, config: DataIngestionConfig) -> str:
+    def handle_data(self, config: DataIngestionConfig) -> str:
         """
-        Abstract method to handle data source.
+        Abstract method to handle data.
 
         Args:
             config (DataIngestionConfig): Configuration object with paths and URLs.
@@ -31,20 +28,20 @@ class DataSourceFactory(ABC):
         pass
 
 
-class LocalFolderFactory(DataSourceFactory):
+class FaceForensicsplusplusFactory(DataFactory):
     """
-    Factory for handling local folder data source.
+    Factory for handling FaceForensics++ data.
     """
 
-    def handle_data_source(self, config: DataIngestionConfig) -> str:
+    def handle_data(self, config: DataIngestionConfig) -> str:
         """
-        Handles data from a local folder by directly using it and sampling videos.
+        Handles FaceForensics++ data by directly using it and sampling videos.
 
         Args:
             config (DataIngestionConfig): Configuration object with local folder path.
 
         Returns:
-            str: Path to the local folder.
+            str: Path to the data folder.
         """
         self.sample_videos_from_folder(
             config.source_data, config.final_data_path, config.num_videos
@@ -129,69 +126,6 @@ class LocalFolderFactory(DataSourceFactory):
         )
 
 
-class LocalZipFileFactory(DataSourceFactory):
-    """
-    Concrete factory for handling local zip file data source.
-    """
-
-    def handle_data_source(
-        self, config: DataIngestionConfig, explicit_zipfile=None
-    ) -> str:
-        """
-        Extracts data from a local zip file and samples videos.
-
-        Args:
-            config (DataIngestionConfig): Configuration object with local zip file path and unzip directory.
-
-        Returns:
-            str: Path to the extracted folder.
-        """
-        unzip_path = config.root_dir / "data_unzipped"
-        create_directories([unzip_path])
-        if not explicit_zipfile:
-            with zipfile.ZipFile(config.source_data, "r") as zip_ref:
-                zip_ref.extractall(unzip_path)
-        else:
-            with zipfile.ZipFile(explicit_zipfile, "r") as zip_ref:
-                zip_ref.extractall(unzip_path)
-
-        LocalFolderFactory().sample_videos_from_folder(
-            unzip_path, config.final_data_path
-        )
-        return unzip_path
-
-
-class GoogleDriveFactory(DataSourceFactory):
-    """
-    Concrete factory for handling data source from Google Drive.
-    """
-
-    def handle_data_source(self, config: DataIngestionConfig) -> str:
-        """
-        Downloads and extracts data from Google Drive and samples videos.
-
-        Args:
-            config (DataIngestionConfig): Configuration object with Google Drive URL, local file path, and unzip directory.
-
-        Returns:
-            str: Path to the extracted folder.
-        """
-        try:
-            dataset_url = config.source_data
-            file_id = dataset_url.split("/")[-2]
-            prefix = "https://drive.google.com/uc?/export=download&id="
-            gdown.download(prefix + file_id, config.root_dir / "data.zip", quiet=False)
-            logger.info(
-                f"Downloaded data from {dataset_url} into file {config.root_dir / 'data.zip'}"
-            )
-        except Exception as e:
-            logger.info(e)
-            raise e
-
-        return LocalZipFileFactory().handle_data_source(
-            config, Path(config.root_dir / "data.zip")
-        )
-
 
 class DataIngestion:
     """
@@ -206,20 +140,8 @@ class DataIngestion:
             config (DataIngestionConfig): Configuration object with paths and URLs.
         """
         self.config = config
-        self.factory = self.get_factory()
+        self.factory = FaceForensicsplusplusFactory()
 
-    def get_factory(self) -> DataSourceFactory:
-        """
-        Determines the appropriate factory based on the data source type.
-        Returns:
-            DataSourceFactory: An instance of a factory for the data source.
-        """
-        if "drive.google.com" in self.config.source_data:
-            return GoogleDriveFactory()
-        elif self.config.source_data.endswith(".zip"):
-            return LocalZipFileFactory()
-        else:
-            return LocalFolderFactory()
 
     def run(self):
         """
@@ -231,5 +153,5 @@ class DataIngestion:
             )
             return
         create_directories([self.config.final_data_path])
-        data_path = self.factory.handle_data_source(self.config)
+        data_path = self.factory.handle_data(self.config)
         logger.info(f"Data has been sampled. Sampled data path: {data_path}")

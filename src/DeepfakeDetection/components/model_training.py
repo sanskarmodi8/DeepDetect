@@ -17,7 +17,7 @@ import tensorflow as tf
 from dotenv import load_dotenv
 from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras import layers, models, optimizers, regularizers
-from tensorflow.keras.applications import EfficientNetB0
+from tensorflow.keras.applications import EfficientNetB2
 from tensorflow.keras.applications.efficientnet import preprocess_input
 from tensorflow.keras.metrics import AUC
 
@@ -56,7 +56,7 @@ class ModelTrainingStrategy(ABC):
 # Concrete Implementation of ModelArchitectureStrategy
 class EfficientNetTransformerArchitecture(ModelArchitectureStrategy):
     def build_model(self, config):
-        base_model = EfficientNetB0(
+        base_model = EfficientNetB2(
             include_top=False, input_shape=tuple(config.input_shape), weights="imagenet"
         )
 
@@ -86,6 +86,13 @@ class EfficientNetTransformerArchitecture(ModelArchitectureStrategy):
         # Final classification head
         x = layers.Dense(
             config.units,
+            activation=config.activation,
+            kernel_regularizer=regularizers.l2(config.l2),
+        )(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Dropout(config.dropout_rate)(x)
+        x = layers.Dense(
+            config.units/2,
             activation=config.activation,
             kernel_regularizer=regularizers.l2(config.l2),
         )(x)
@@ -125,13 +132,13 @@ class AugmentedTrainingStrategy(ModelTrainingStrategy):
         return image
 
     def augmentations(self, image):
-        image = tf.image.random_brightness(image, max_delta=0.3)
-        image = tf.image.random_contrast(image, lower=0.6, upper=1.4)
+        image = tf.image.random_brightness(image, max_delta=0.2)
+        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
         image = tf.image.random_flip_left_right(image)
-        image = tf.image.random_saturation(image, lower=0.6, upper=1.4)
-        image = tf.image.random_hue(image, max_delta=0.3)
+        image = tf.image.random_saturation(image, lower=0.8, upper=1.2)
+        image = tf.image.random_hue(image, max_delta=0.2)
         image = self.coarse_dropout(
-            image, max_holes=5, max_height=69, min_height=20,max_width=69, min_width=20,p=0.6
+            image, max_holes=5, max_height=60, min_height=20,max_width=60, min_width=20,p=0.7
         )
         return image
 
@@ -142,11 +149,11 @@ class AugmentedTrainingStrategy(ModelTrainingStrategy):
         image = tf.image.resize(image, tuple(self.config.input_shape[:2]))
         return image, label
 
-    def save_augmented_samples(self, images, labels, num_samples=10):
+    def save_augmented_samples(self, images, labels):
         if self.augmented_samples_saved:
             return
 
-        for i in range(num_samples):
+        for i in range(4):
             augmented_image, _ = self.augment(images[i], labels[i])
             cv2.imwrite(
                 f"{self.config.root_dir}/augmented_image_{i}.jpg",
