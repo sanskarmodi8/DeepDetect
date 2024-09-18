@@ -1,0 +1,15 @@
+artifact_uri: file:///home/sanskar-modi/current_working_personal_projects/DeepDetect/mlruns/0/2ed8a6d688034b9f9f1ba08fe057de8e/artifacts
+end_time: 1726659103602
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 2ed8a6d688034b9f9f1ba08fe057de8e
+run_name: rogue-cub-395
+run_uuid: 2ed8a6d688034b9f9f1ba08fe057de8e
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1726659101613
+status: 3
+tags: []
+user_id: sanskar-modi

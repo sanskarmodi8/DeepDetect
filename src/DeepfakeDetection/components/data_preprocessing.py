@@ -11,7 +11,6 @@ from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import DataPreprocessingConfig
 from DeepfakeDetection.utils.common import create_directories
 
-
 class FrameExtractionStrategy(ABC):
     @abstractmethod
     def extract_frames(self, video_path):
@@ -96,7 +95,7 @@ class DataPreprocessing:
         """
         # Use 'mp4v' for MP4 files, which is widely supported
         out = cv2.VideoWriter(
-            output_path, cv2.VideoWriter_fourcc(*"mp4v"), self.config.fps, (112, 112)
+            output_path, cv2.VideoWriter_fourcc(*'mp4v'), self.config.fps, tuple(self.config.resolution)
         )
         for frame in frames:
             out.write(frame)
@@ -110,8 +109,9 @@ class DataPreprocessing:
             video_file (tuple): Tuple containing the folder name and the video file name.
             output_dir (str): Directory where the output video will be saved.
         """
-
+        folder, video_file = video_file
         out_path = os.path.join(output_dir, video_file)
+        video_path = os.path.join(self.config.data_path, folder, video_file)
 
         # Check if the file already exists to avoid duplication
         if os.path.exists(out_path):
@@ -122,7 +122,7 @@ class DataPreprocessing:
         frames = []
         processed_frames = []
         for idx, frame in enumerate(
-            self.frame_extraction_strategy.extract_frames(video_file)
+            self.frame_extraction_strategy.extract_frames(video_path)
         ):
             if idx <= self.config.max_frames:  # Limiting the number of frames
                 frames.append(frame)
@@ -167,7 +167,7 @@ class DataPreprocessing:
             else:
                 raise ValueError(f"Unexpected folder name: {folder}")
 
-            self.process_video(file_name, output_dir)
+            self.process_video(video_file, output_dir)
 
     def stratified_split(
         self, video_files: list, test_size: float = 0.15, val_size: float = 0.15

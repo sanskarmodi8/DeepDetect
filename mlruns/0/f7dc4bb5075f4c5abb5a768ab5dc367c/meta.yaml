@@ -1,0 +1,15 @@
+artifact_uri: file:///home/sanskar-modi/current_working_personal_projects/DeepDetect/mlruns/0/f7dc4bb5075f4c5abb5a768ab5dc367c/artifacts
+end_time: 1726667218784
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: f7dc4bb5075f4c5abb5a768ab5dc367c
+run_name: gentle-shrike-955
+run_uuid: f7dc4bb5075f4c5abb5a768ab5dc367c
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1726667216576
+status: 3
+tags: []
+user_id: sanskar-modi

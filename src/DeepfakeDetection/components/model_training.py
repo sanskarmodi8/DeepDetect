@@ -9,9 +9,13 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from torchvision import models, transforms
 from tqdm import tqdm
+from torch.cuda.amp import GradScaler, autocast
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import ModelTrainingConfig
+
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 
 # Define your VideoDataset class for loading video data
@@ -55,6 +59,34 @@ class VideoDataset(Dataset):
         return torch.stack(frames), torch.tensor(label, dtype=torch.long)
 
 
+class ResNextLSTMModel(nn.Module):
+    def __init__(
+        self,
+        num_classes,
+        latent_dim,
+        lstm_layers=1,
+        hidden_dim=None,
+        bidirectional=False,
+        dropout_rate=0.5,
+    ):
+        super(ResNextLSTMModel, self).__init__()
+        model = models.resnext50_32x4d(pretrained=True)  # Residual Network CNN
+        self.model = nn.Sequential(*list(model.children())[:-2])
+        self.lstm = nn.LSTM(latent_dim, hidden_dim, lstm_layers, bidirectional=bidirectional)
+        self.relu = nn.LeakyReLU()
+        self.dp = nn.Dropout(dropout_rate)
+        self.linear1 = nn.Linear(latent_dim, num_classes)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+
+    def forward(self, x):
+        batch_size, seq_length, c, h, w = x.shape
+        x = x.view(batch_size * seq_length, c, h, w)
+        fmap = self.model(x)
+        x = self.avgpool(fmap)
+        x = x.view(batch_size, seq_length, -1)  # Latent dimension should match model output
+        x_lstm, _ = self.lstm(x, None)
+        return fmap, self.dp(self.linear1(torch.mean(x_lstm, dim=1)))
+
 # Abstract model strategy class
 class ModelStrategy(ABC):
     @abstractmethod
@@ -76,54 +108,38 @@ class TrainingStrategy(ABC):
 # ResNext-LSTM Strategy using your custom model
 class ResNextLSTMStrategy(ModelStrategy):
     def build_model(self, config, num_classes=2):
-        class ResNextLSTMModel(nn.Module):
-            def __init__(
-                self,
-                num_classes,
-                latent_dim=2048,
-                lstm_layers=1,
-                hidden_dim=2048,
-                bidirectional=False,
-            ):
-                super(ResNextLSTMModel, self).__init__()
-                model = models.resnext50_32x4d(pretrained=True)  # Residual Network CNN
-                self.model = nn.Sequential(*list(model.children())[:-2])
-                self.lstm = nn.LSTM(
-                    latent_dim, hidden_dim, lstm_layers, bidirectional=bidirectional
-                )
-                self.relu = nn.LeakyReLU()
-                self.dp = nn.Dropout(0.4)
-                self.linear1 = nn.Linear(2048, num_classes)
-                self.avgpool = nn.AdaptiveAvgPool2d(1)
-
-            def forward(self, x):
-                batch_size, seq_length, c, h, w = x.shape
-                x = x.view(batch_size * seq_length, c, h, w)
-                fmap = self.model(x)
-                x = self.avgpool(fmap)
-                x = x.view(batch_size, seq_length, 2048)
-                x_lstm, _ = self.lstm(x, None)
-                return fmap, self.dp(self.linear1(torch.mean(x_lstm, dim=1)))
-
-        return ResNextLSTMModel(num_classes=num_classes)
+        return ResNextLSTMModel(
+            num_classes=num_classes,
+            latent_dim=config.units,
+            lstm_layers=1,
+            hidden_dim=config.units,
+            bidirectional=False,
+            dropout_rate=config.dropout_rate,
+        )
 
 
 # Standard training strategy for training and validation
 class StandardTrainingStrategy(TrainingStrategy):
-    def train_epoch(self, model, dataloader, criterion, optimizer, device):
+    def train_epoch(self, model, dataloader, criterion, optimizer, device, scaler):
         model.train()
         running_loss = 0.0
         correct = 0
         total = 0
 
-        for inputs, labels in tqdm(dataloader, desc="Training"):
+        for i, (inputs, labels) in enumerate(tqdm(dataloader, desc="Training")):
             inputs, labels = inputs.to(device), labels.to(device)
 
-            optimizer.zero_grad()
-            _, outputs = model(inputs)  # Using only the classifier output
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            # Mixed precision training
+            with autocast():
+                _, outputs = model(inputs)
+                loss = criterion(outputs, labels)
+
+            scaler.scale(loss).backward()
+
+            if (i + 1) % 4 == 0:  # Gradient accumulation: update every 4 batches
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
 
             running_loss += loss.item()
             _, predicted = outputs.max(1)
@@ -173,6 +189,7 @@ class ModelTraining:
         self.training_strategy = StandardTrainingStrategy()
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
     def load_video_paths(self, data_path, split):
         video_paths = []
@@ -227,15 +244,17 @@ class ModelTraining:
 
         self.train_loader = DataLoader(
             train_dataset,
-            batch_size=self.config.batch_size,
+            batch_size=self.config.batch_size//4,
             shuffle=True,
             num_workers=self.config.num_workers,
+            pin_memory=True,
         )
         self.val_loader = DataLoader(
             val_dataset,
-            batch_size=self.config.batch_size,
-            shuffle=False,
+            batch_size=self.config.batch_size//4,
+            shuffle=True,
             num_workers=self.config.num_workers,
+            pin_memory=True,
         )
 
     def train(self):
@@ -245,11 +264,11 @@ class ModelTraining:
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=0.1, patience=5, verbose=True
         )
-
         best_val_acc = 0.0
+        scaler = GradScaler()
         for epoch in range(self.config.epochs):
             train_loss, train_acc = self.training_strategy.train_epoch(
-                model, self.train_loader, criterion, optimizer, self.device
+                model, self.train_loader, criterion, optimizer, self.device, scaler
             )
             val_loss, val_acc, precision, recall, f1 = self.training_strategy.validate(
                 model, self.val_loader, criterion, self.device
@@ -266,7 +285,7 @@ class ModelTraining:
 
             if val_acc > best_val_acc:
                 best_val_acc = val_acc
-                torch.save(model.state_dict(), self.config.model_path)
+                torch.save(model, self.config.model_path)
                 logger.info("Model saved!")
 
         logger.info("Training completed!")

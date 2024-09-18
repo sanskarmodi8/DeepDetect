@@ -1,0 +1,15 @@
+artifact_uri: file:///home/sanskar-modi/current_working_personal_projects/DeepDetect/mlruns/0/e082e789b00944eaad0d6e1b4bdf3db3/artifacts
+end_time: 1726667198354
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: e082e789b00944eaad0d6e1b4bdf3db3
+run_name: delightful-kit-549
+run_uuid: e082e789b00944eaad0d6e1b4bdf3db3
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1726667196254
+status: 3
+tags: []
+user_id: sanskar-modi

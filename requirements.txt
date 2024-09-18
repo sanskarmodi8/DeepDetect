@@ -23,6 +23,7 @@ ffmpeg-python
 # Environment, Data Management, and HTTP Requests
 python-dotenv
 dvc
+dlib==19.22.1 --no-binary dlib
 requests
 gdown
 

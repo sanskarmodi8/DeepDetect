@@ -79,28 +79,20 @@ class ResNextLSTMEvaluationStrategy(EvaluationStrategy):
             for inputs, labels in tqdm(dataloader, desc="Evaluating"):
                 inputs, labels = inputs.to(device), labels.to(device)
 
-                outputs = model(inputs)
+                _, outputs = model(inputs)  # Unpack the tuple, use only the second element
                 loss = criterion(outputs, labels)
 
                 running_loss += loss.item()
                 _, predicted = outputs.max(1)
 
-                all_preds.extend(
-                    outputs.cpu().numpy()[:, 1]
-                )  # Probability of being fake
+                all_preds.extend(outputs.cpu().numpy()[:, 1])  # Probability of being fake
                 all_labels.extend(labels.cpu().numpy())
 
         epoch_loss = running_loss / len(dataloader)
         accuracy = accuracy_score(all_labels, (np.array(all_preds) > 0.5).astype(int))
-        precision = precision_score(
-            all_labels, (np.array(all_preds) > 0.5).astype(int), average="weighted"
-        )
-        recall = recall_score(
-            all_labels, (np.array(all_preds) > 0.5).astype(int), average="weighted"
-        )
-        f1 = f1_score(
-            all_labels, (np.array(all_preds) > 0.5).astype(int), average="weighted"
-        )
+        precision = precision_score(all_labels, (np.array(all_preds) > 0.5).astype(int), average="weighted")
+        recall = recall_score(all_labels, (np.array(all_preds) > 0.5).astype(int), average="weighted")
+        f1 = f1_score(all_labels, (np.array(all_preds) > 0.5).astype(int), average="weighted")
         auc = roc_auc_score(all_labels, all_preds)
 
         return {
