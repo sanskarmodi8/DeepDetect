@@ -5,6 +5,16 @@ from DeepfakeDetection.config.configuration import ConfigurationManager
 
 class DataPreprocessingPipeline:
     def __init__(self):
+        """
+        Initializes DataPreprocessingPipeline with a configuration object.
+
+        Args:
+            None
+
+        Attributes:
+            data_preprocessing_config (DataPreprocessingConfig): Configuration object with paths and settings.
+            data_preprocessing (DataPreprocessing): DataPreprocessing component instance.
+        """
         config = ConfigurationManager()
         self.data_preprocessing_config = config.get_data_preprocessing_config()
         self.data_preprocessing = DataPreprocessing(
@@ -12,6 +22,9 @@ class DataPreprocessingPipeline:
         )
 
     def main(self):
+        """
+        Executes the data preprocessing process by calling the run method of DataPreprocessing.
+        """
         self.data_preprocessing.run()
 
 

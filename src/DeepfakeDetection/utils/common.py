@@ -85,43 +85,6 @@ def load_json(path: Path) -> ConfigBox:
     return ConfigBox(content)
 
 
-def load_h5py(path: Path, dataset_name="data") -> Any:
-    """load data from an HDF5 file using h5py
-    Args:
-        path (Path): path to the HDF5 file
-        dataset_name (str): name of the dataset in the HDF5 file
-    Returns:
-        Any: data loaded from the file
-    """
-    with h5py.File(path, "r") as h5f:
-        data = np.array(h5f[dataset_name])
-
-    logger.info(f"HDF5 file loaded from: {path}")
-    return data
-
-
-def save_h5py(
-    data: np.ndarray, file_path: Path, dataset_name="data", compression="gzip"
-):
-    """Append data to an HDF5 file if the dataset exists, or create a new dataset if it doesn't.
-    Args:
-        data (np.ndarray): Data to be saved or appended.
-        path (Path): Path to the HDF5 file.
-        dataset_name (str): Name of the dataset in the HDF5 file.
-        compression (str): Compression method (default: "gzip").
-    """
-    with h5py.File(file_path, "a") as f:
-        if dataset_name in f:
-            # Append to existing dataset
-            dataset = f[dataset_name]
-            dataset.resize(dataset.shape[0] + data.shape[0], axis=0)
-            dataset[-data.shape[0] :] = data
-        else:
-            # Create new dataset
-            f.create_dataset(dataset_name, data=data, maxshape=(None,) + data.shape[1:])
-    logger.info(f"HDF5 file updated at: {file_path}")
-
-
 @ensure_annotations
 def get_size_in_kbs(path: Path) -> int:
     """get size in KB
@@ -130,7 +93,7 @@ def get_size_in_kbs(path: Path) -> int:
         path (Path): path of the file
 
     Returns:
-        str: size in KB
+        int: size in KB
     """
     size_in_kb = round(os.path.getsize(path) / 1024)
     return size_in_kb

@@ -11,6 +11,7 @@ from DeepfakeDetection.pipeline.stage_04_model_evaluation import ModelEvaluation
 # load the env variables for the mlflow tracking
 load_dotenv()
 
+# Data Ingestion stage
 STAGE_NAME = "Data Ingestion stage"
 try:
     logger.info(f"\n\n>>>>>> stage {STAGE_NAME} started <<<<<<\n\n")
@@ -21,6 +22,7 @@ except Exception as e:
     logger.exception(e)
     raise e
 
+# Data Preprocessing stage
 STAGE_NAME = "Data Preprocessing"
 
 try:
@@ -32,6 +34,7 @@ except Exception as e:
     logger.exception(e)
     raise e
 
+# Model Training stage
 STAGE_NAME = "Model Training stage"
 
 try:
@@ -43,6 +46,8 @@ except Exception as e:
     logger.exception(e)
     raise e
 
+
+# Model Evaluation stage
 STAGE_NAME = "Model Evaluation stage"
 
 try:

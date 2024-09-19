@@ -6,7 +6,7 @@ from pathlib import Path
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import DataIngestionConfig
-from DeepfakeDetection.utils.common import create_directories, get_size_in_kbs
+from DeepfakeDetection.utils.common import create_directories
 
 
 class DataFactory(ABC):

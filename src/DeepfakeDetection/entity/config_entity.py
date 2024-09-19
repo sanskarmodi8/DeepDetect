@@ -18,6 +18,7 @@ class DataPreprocessingConfig:
     max_frames: int
     fps: int
     resolution: list
+    expansion_factor: float
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,9 @@ class ModelTrainingConfig:
     learning_rate: float
     epochs: int
     model_path: Path
+    lstm_layers: int
+    bidirectional: bool
+    weight_decay: float
 
 
 @dataclass(frozen=True)

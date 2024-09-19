@@ -1,52 +1,30 @@
-# Core Libraries for Machine Learning
-tensorflow-gpu==2.11.0
-tensorflow_addons
-keras
-vit-keras
+# Core Libraries for Machine Learning and image/video processing
 torch
-facenet-pytorch
-albumentations
-albumentations[imgaug,opencv]
 torchvision
-timm
 transformers
 numpy
+sklearn
 pandas
-
-# Image and Video Processing
 opencv-python
-mediapipe
 face_recognition
 pillow
-ffmpeg-python
+dlib==19.22.1
 
-# Environment, Data Management, and HTTP Requests
-python-dotenv
-dvc
-dlib==19.22.1 --no-binary dlib
-requests
-gdown
-
-# Machine Learning Workflow, Model Management, and Configuration
+# Machine Learning Workflow, pipelines, Model Management, env, and Configuration
 mlflow
-joblib
-pydantic
-python-multipart
 pyYAML
+dvc
+python-dotenv
 
 # Testing and Model Explainability
 pytest
-h5py
 shap
 lime
 
-# Web Frameworks and APIs
-fastapi
-uvicorn
-streamlit
+# User Interface
 gradio
 
-# Development and Code Quality Tools
+# Code Formatting
 black
 isort
 
@@ -56,8 +34,9 @@ ipywidgets
 jupyter
 notebook
 
-# easier handling of nested dicts and function signature annotations
+# utils and helper libraries
 python-box
+tqdm
 ensure
 
 -e .

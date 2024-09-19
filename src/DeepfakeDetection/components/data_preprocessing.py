@@ -11,6 +11,7 @@ from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import DataPreprocessingConfig
 from DeepfakeDetection.utils.common import create_directories
 
+
 class FrameExtractionStrategy(ABC):
     @abstractmethod
     def extract_frames(self, video_path):
@@ -79,85 +80,136 @@ class DataPreprocessing:
         Initializes DataPreprocessing with a configuration object.
 
         Args:
-            config (DataPreprocessingConfig): Configuration object with frame extraction and face detection parameters.
+            config (DataPreprocessingConfig): Configuration object with paths and settings.
+
+        Attributes:
+            config (DataPreprocessingConfig): Configuration object with data preprocessing settings.
+            frame_extraction_strategy (FrameExtractionStrategy): Strategy for extracting frames from a video.
+            face_detection_strategy (FaceDetectionStrategy): Strategy for detecting faces in a frame.
         """
         self.config = config
         self.frame_extraction_strategy = OpenCVFrameExtraction()
         self.face_detection_strategy = FaceRecognitionStrategy()
 
-    def write_video(self, output_path, frames):
-        """
-        Writes a video from a list of frames to a file.
-
-        Args:
-            output_path (str): Path to the output video file.
-            frames (list): A list of numpy arrays, where each array is a frame from a video.
-        """
-        # Use 'mp4v' for MP4 files, which is widely supported
-        out = cv2.VideoWriter(
-            output_path, cv2.VideoWriter_fourcc(*'mp4v'), self.config.fps, tuple(self.config.resolution)
-        )
-        for frame in frames:
-            out.write(frame)
-        out.release()
-
     def process_video(self, video_file, output_dir):
         """
-        Process a video file, detect faces, and save the resulting video.
+        Process a single video file by extracting frames, detecting faces in each frame,
+        cropping the face region, and saving the processed frames to a new video file.
 
         Args:
-            video_file (tuple): Tuple containing the folder name and the video file name.
-            output_dir (str): Directory where the output video will be saved.
+            video_file (tuple): A tuple of (folder, video_file)
+            output_dir (str): The output directory for the processed video file
+
+        Returns:
+            None
         """
         folder, video_file = video_file
         out_path = os.path.join(output_dir, video_file)
         video_path = os.path.join(self.config.data_path, folder, video_file)
 
-        # Check if the file already exists to avoid duplication
         if os.path.exists(out_path):
             print(f"File already exists: {out_path}")
             return
 
-        # Extract frames
         frames = []
         processed_frames = []
         for idx, frame in enumerate(
             self.frame_extraction_strategy.extract_frames(video_path)
         ):
-            if idx <= self.config.max_frames:  # Limiting the number of frames
+            if idx <= self.config.max_frames:
                 frames.append(frame)
-                # Process batches of 4 frames
                 if len(frames) == 4:
                     faces = self.face_detection_strategy.detect_faces(frames)
                     for i, face in enumerate(faces):
                         if len(face) > 0:
                             top, right, bottom, left = face[0]
+                            face_height = bottom - top
+                            face_width = right - left
+                            # Expand the face region by self.config.expansion_factor
+                            top = max(
+                                0,
+                                top
+                                - int(self.config.expansion_factor / 2 * face_height),
+                            )
+                            bottom = min(
+                                frame.shape[0],
+                                bottom
+                                + int(self.config.expansion_factor / 2 * face_height),
+                            )
+                            left = max(
+                                0,
+                                left
+                                - int(self.config.expansion_factor / 2 * face_width),
+                            )
+                            right = min(
+                                frame.shape[1],
+                                right
+                                + int(self.config.expansion_factor / 2 * face_width),
+                            )
+
                             cropped_face = cv2.resize(
                                 frames[i][top:bottom, left:right, :],
                                 tuple(self.config.resolution),
                             )
+                            # Apply color jitter
+                            cropped_face = self.color_jitter(cropped_face)
                             processed_frames.append(cropped_face)
-                    frames = []  # Reset frames list after processing
+                    frames = []
 
-        # Save the processed video
         self.write_video(out_path, processed_frames)
+
+    def color_jitter(self, image):
+        """
+        Applies color jitter to the given image. This includes randomly adjusting
+        brightness, contrast, and saturation.
+
+        Args:
+            image (np.ndarray): The input image with shape (height, width, channels).
+
+        Returns:
+            np.ndarray: The color jittered image with the same shape as the input image.
+        """
+        rng = np.random.default_rng(seed=42)
+
+        # Randomly adjust brightness, contrast, and saturation
+        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        h, s, v = cv2.split(hsv)
+
+        # Adjust brightness
+        value = rng.uniform(0.8, 1.2)
+        v = cv2.multiply(v, value)
+
+        # Adjust contrast
+        mean = np.mean(v)
+        value = rng.uniform(0.8, 1.2)
+        v = cv2.addWeighted(v, value, mean, 1 - value, 0)
+
+        # Adjust saturation
+        value = rng.uniform(0.8, 1.2)
+        s = cv2.multiply(s, value)
+
+        final_hsv = cv2.merge((h, s, v))
+        image = cv2.cvtColor(final_hsv, cv2.COLOR_HSV2RGB)
+        return image
 
     def process_and_save_split(self, split_name, video_files):
         """
-        Process and save videos in a specific split (train, val, or test),
-        and organize them into 'original' and 'fake' subdirectories.
+        Process and save the given split of videos.
 
         Args:
-            split_name (str): Name of the data split ('train', 'val', 'test').
-            video_files (list): List of video file paths to process.
+            split_name (str): Name of the split (e.g. "train", "val", "test").
+            video_files (list): List of tuples, where each tuple contains the folder name and video file name.
+
+        Returns:
+            None
         """
-        # Create directories for 'original' and 'fake' videos within each split directory
+
         output_original_dir = os.path.join(self.config.root_dir, split_name, "original")
         output_fake_dir = os.path.join(self.config.root_dir, split_name, "fake")
         create_directories([output_original_dir, output_fake_dir])
 
         for video_file in tqdm(video_files, desc=f"Processing {split_name} split"):
-            folder, file_name = video_file
+            folder, _ = video_file
 
             # Check whether the video is 'original' or 'fake' based on the folder name
             if folder == "original":
@@ -172,6 +224,17 @@ class DataPreprocessing:
     def stratified_split(
         self, video_files: list, test_size: float = 0.15, val_size: float = 0.15
     ):
+        """
+        Perform a stratified split of the given video files into train, validation, and test sets.
+
+        Args:
+            video_files (list): List of video file paths to split.
+            test_size (float, optional): Proportion of the data to use for the test set. Defaults to 0.15.
+            val_size (float, optional): Proportion of the data to use for the validation set. Defaults to 0.15.
+
+        Returns:
+            tuple: A tuple of three lists, each containing the file paths for the train, validation, and test sets, respectively.
+        """
         labels = np.array([file[0] for file in video_files])
         stratified_split = StratifiedShuffleSplit(
             n_splits=1, test_size=test_size, random_state=42
@@ -198,6 +261,12 @@ class DataPreprocessing:
 
     def run(self):
         # Gather files from manipulated and original video directories
+        """
+        Runs the data preprocessing pipeline by gathering files from the manipulated and original directories,
+        splitting them into train, validation, and test sets, and then processing and saving each split.
+
+        :return: None
+        """
         files = [
             (folder, file)
             for folder in ["manipulated", "original"]

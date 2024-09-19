@@ -2,6 +2,8 @@ import logging
 import os
 from pathlib import Path
 
+# CREATE THE INITIAL PROJECT STRUCTURE
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s]: %(message)s:")
 
@@ -36,7 +38,7 @@ list_of_files = [
     "notebook/main.ipynb",
     ".gitignore",
     ".dvcignore",
-    "gradio_app.py",
+    "app.py",
     "Dockerfile",
     ".env",
     "pyproject.toml",
