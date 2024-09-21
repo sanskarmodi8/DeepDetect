@@ -8,10 +8,12 @@ import torch
 from dotenv import load_dotenv
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from torch import nn
+import torch.nn.functional as F
 from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import DataLoader, Dataset
 from torchvision import models, transforms
 from tqdm import tqdm
+from sklearn.utils.class_weight import compute_class_weight
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import ModelTrainingConfig
@@ -63,7 +65,7 @@ class VideoDataset(Dataset):
 
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if frame_count > self.sequence_length:
-            start = rng.randint(0, frame_count - self.sequence_length)
+            start = rng.integers(0, frame_count - self.sequence_length)
             cap.set(cv2.CAP_PROP_POS_FRAMES, start)
 
         for _ in range(self.sequence_length):
@@ -171,7 +173,7 @@ class ModelStrategy(ABC):
 
 class TrainingStrategy(ABC):
     @abstractmethod
-    def train_epoch(self, model, dataloader, criterion, optimizer, device):
+    def train_epoch(self, model, dataloader, criterion, optimizer, device, scaler):
         """
         Train the model for one epoch.
 
@@ -188,7 +190,7 @@ class TrainingStrategy(ABC):
         pass
 
     @abstractmethod
-    def validate(self, model, dataloader, criterion, device):
+    def validate(self, model, dataloader, device):
         """
         Validates the model on the given dataloader and returns the validation loss, accuracy, precision, recall and f1 score.
 
@@ -238,6 +240,7 @@ class StandardTrainingStrategy(TrainingStrategy):
             optimizer (nn.Module): The optimizer to be used.
             device (str): The device to be used.
             scaler (GradScaler): The gradient scaler to be used.
+            class_weights (torch.Tensor): Tensor containing class weights.
 
         Returns:
             tuple: A tuple containing the epoch loss and epoch accuracy.
@@ -270,7 +273,7 @@ class StandardTrainingStrategy(TrainingStrategy):
         epoch_acc = correct / total
         return epoch_loss, epoch_acc
 
-    def validate(self, model, dataloader, criterion, device):
+    def validate(self, model, dataloader, device):
         """
         Validates the model on the given dataloader and returns the validation loss, accuracy, precision, recall and f1 score.
 
@@ -289,6 +292,8 @@ class StandardTrainingStrategy(TrainingStrategy):
         total = 0
         all_preds = []
         all_labels = []
+        
+        criterion = nn.CrossEntropyLoss()
 
         with torch.no_grad():
             for inputs, labels in tqdm(dataloader, desc="Validating"):
@@ -344,6 +349,11 @@ class ModelTraining:
         if not mlflow.active_run():
             mlflow.start_run()
         logger.info("MLflow experiment initialized for training.")
+        
+    def get_class_weights(self, labels):
+        classes = np.unique(labels)
+        class_weights = compute_class_weight(class_weight='balanced', classes=classes, y=labels)
+        return torch.tensor(class_weights, dtype=torch.float)
 
     def load_video_paths(self, data_path, split):
         """
@@ -395,7 +405,7 @@ class ModelTraining:
         transform = transforms.Compose(
             [
                 transforms.ToPILImage(),
-                transforms.Resize((224, 224)),
+                transforms.Resize(tuple(self.config.input_shape[:2])),
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomRotation(10),
                 transforms.ToTensor(),
@@ -405,20 +415,20 @@ class ModelTraining:
             ]
         )
 
-        train_videos, train_labels = self.load_video_paths(
+        self.train_videos, self.train_labels = self.load_video_paths(
             self.config.data_path, "train"
         )
-        val_videos, val_labels = self.load_video_paths(self.config.data_path, "val")
+        self.val_videos, self.val_labels = self.load_video_paths(self.config.data_path, "val")
 
         train_dataset = VideoDataset(
-            train_videos,
-            train_labels,
+            self.train_videos,
+            self.train_labels,
             sequence_length=self.config.sequence_length,
             transform=transform,
         )
         val_dataset = VideoDataset(
-            val_videos,
-            val_labels,
+            self.val_videos,
+            self.val_labels,
             sequence_length=self.config.sequence_length,
             transform=transform,
         )
@@ -461,8 +471,9 @@ class ModelTraining:
         """
 
         model = self.model_strategy.build_model(self.config).to(self.device)
+        class_weights = self.get_class_weights(np.array(self.train_labels))
         criterion = nn.CrossEntropyLoss(
-            weight=torch.tensor([1.0, 2.0]).to(self.device)
+            weight=class_weights.to(self.device)
         )  # Weighted loss
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -480,7 +491,7 @@ class ModelTraining:
                 model, self.train_loader, criterion, optimizer, self.device, scaler
             )
             val_loss, val_acc, precision, recall, f1 = self.training_strategy.validate(
-                model, self.val_loader, criterion, self.device
+                model, self.val_loader, self.device
             )
 
             scheduler.step(val_loss)
@@ -494,7 +505,7 @@ class ModelTraining:
 
             if val_acc > best_val_acc:
                 best_val_acc = val_acc
-                torch.save(model.state_dict(), self.config.model_path)
+                torch.save(model, self.config.model_path)
                 logger.info("Model saved!")
 
         if mlflow.active_run():
@@ -514,19 +525,20 @@ class ModelTraining:
             mlflow.log_param("epochs", self.config.epochs)
             mlflow.log_param("sequence_length", self.config.sequence_length)
 
-            # Define model signature
-            input_example = next(iter(self.train_loader))[0][:1].to(self.device)
-            model_signature = mlflow.models.infer_signature(
-                input_example.cpu().numpy(), model(input_example).detach().cpu().numpy()
-            )
+        # Define model signature
+        input_example = next(iter(self.train_loader))[0][:1].to(self.device)
+        _, model_output = model(input_example)  # Unpack the tuple
+        model_signature = mlflow.models.infer_signature(
+            input_example.cpu().numpy(), model_output.detach().cpu().numpy()
+        )
 
-            # Log model with signature
-            mlflow.pytorch.log_model(
-                model,
-                "model",
-                signature=model_signature,
-                input_example=input_example.cpu().numpy(),
-            )
+        # Log model with signature
+        mlflow.pytorch.log_model(
+            model,
+            "model",
+            signature=model_signature,
+            input_example=input_example.cpu().numpy(),
+        )
 
         logger.info("Training completed!")
 

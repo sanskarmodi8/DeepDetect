@@ -9,7 +9,6 @@ import plotly.graph_objs as go
 import plotly.io as pio
 import torch
 from dotenv import load_dotenv
-from plotly.subplots import make_subplots
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
@@ -71,7 +70,7 @@ class VideoDataset(Dataset):
 
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if frame_count > self.sequence_length:
-            start = rng.randint(0, frame_count - self.sequence_length)
+            start = rng.integers(0, frame_count - self.sequence_length)
             cap.set(cv2.CAP_PROP_POS_FRAMES, start)
 
         for _ in range(self.sequence_length):
@@ -406,7 +405,7 @@ class ModelEvaluation:
             pio.write_html(plot_figure, file=plot_path)
             logger.info(f"Plot saved: {plot_path}")
             if mlflow.active_run():
-                mlflow.log_artifact(plot_path)  # log the plot to mlflow
+                mlflow.log_artifact(plot_path) 
 
     def execute(self):
         """
