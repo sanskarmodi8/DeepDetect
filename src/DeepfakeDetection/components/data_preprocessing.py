@@ -90,7 +90,7 @@ class DataPreprocessing:
         self.config = config
         self.frame_extraction_strategy = OpenCVFrameExtraction()
         self.face_detection_strategy = FaceRecognitionStrategy()
-        
+
     def write_video(self, output_path, frames):
         """
         Writes a video from a list of frames to a file.
@@ -101,7 +101,10 @@ class DataPreprocessing:
         """
         # Use 'mp4v' for MP4 files, which is widely supported
         out = cv2.VideoWriter(
-            output_path, cv2.VideoWriter_fourcc(*'mp4v'), self.config.fps, tuple(self.config.resolution)
+            output_path,
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            self.config.fps,
+            tuple(self.config.resolution),
         )
         for frame in frames:
             out.write(frame)

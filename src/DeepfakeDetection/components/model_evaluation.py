@@ -405,7 +405,7 @@ class ModelEvaluation:
             pio.write_html(plot_figure, file=plot_path)
             logger.info(f"Plot saved: {plot_path}")
             if mlflow.active_run():
-                mlflow.log_artifact(plot_path) 
+                mlflow.log_artifact(plot_path)
 
     def execute(self):
         """

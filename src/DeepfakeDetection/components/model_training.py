@@ -5,15 +5,15 @@ import cv2
 import mlflow
 import numpy as np
 import torch
+import torch.nn.functional as F
 from dotenv import load_dotenv
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.utils.class_weight import compute_class_weight
 from torch import nn
-import torch.nn.functional as F
 from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import DataLoader, Dataset
 from torchvision import models, transforms
 from tqdm import tqdm
-from sklearn.utils.class_weight import compute_class_weight
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import ModelTrainingConfig
@@ -292,7 +292,7 @@ class StandardTrainingStrategy(TrainingStrategy):
         total = 0
         all_preds = []
         all_labels = []
-        
+
         criterion = nn.CrossEntropyLoss()
 
         with torch.no_grad():
@@ -349,10 +349,12 @@ class ModelTraining:
         if not mlflow.active_run():
             mlflow.start_run()
         logger.info("MLflow experiment initialized for training.")
-        
+
     def get_class_weights(self, labels):
         classes = np.unique(labels)
-        class_weights = compute_class_weight(class_weight='balanced', classes=classes, y=labels)
+        class_weights = compute_class_weight(
+            class_weight="balanced", classes=classes, y=labels
+        )
         return torch.tensor(class_weights, dtype=torch.float)
 
     def load_video_paths(self, data_path, split):
@@ -418,7 +420,9 @@ class ModelTraining:
         self.train_videos, self.train_labels = self.load_video_paths(
             self.config.data_path, "train"
         )
-        self.val_videos, self.val_labels = self.load_video_paths(self.config.data_path, "val")
+        self.val_videos, self.val_labels = self.load_video_paths(
+            self.config.data_path, "val"
+        )
 
         train_dataset = VideoDataset(
             self.train_videos,
