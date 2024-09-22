@@ -84,16 +84,16 @@ stages:
       size: 673
     - path: src/DeepfakeDetection/components/model_training.py
       hash: md5
-      md5: 6bdba4dadf8da4e71eadfe4352d96b5a
-      size: 20488
+      md5: 4e7261ce46c3ecdc84a5242422b45d7a
+      size: 20551
     - path: src/DeepfakeDetection/pipeline/stage_03_model_training.py
       hash: md5
       md5: 526936f505a08e7e06f7824751704019
       size: 1008
     params:
       params.yaml:
-        batch_size: 16
-        bidirectional: false
+        batch_size: 12
+        bidirectional: true
         dropout_rate: 0.5
         epochs: 200
         input_shape:
@@ -109,8 +109,8 @@ stages:
     outs:
     - path: artifacts/model_training/model.pt
       hash: md5
-      md5: ad725d84f5b5859a2e4d10dd1a50b173
-      size: 483358286
+      md5: 1665987a1d01e2905de742cda50c8e51
+      size: 618707150
   model_evaluation:
     cmd: python src/DeepfakeDetection/pipeline/stage_04_model_evaluation.py
     deps:
@@ -121,15 +121,15 @@ stages:
       nfiles: 310
     - path: artifacts/model_training/model.pt
       hash: md5
-      md5: ad725d84f5b5859a2e4d10dd1a50b173
-      size: 483358286
+      md5: 1665987a1d01e2905de742cda50c8e51
+      size: 618707150
     - path: config/config.yaml
       hash: md5
       md5: 511e7f4a31be74612237eea745114125
       size: 673
     - path: src/DeepfakeDetection/components/model_evaluation.py
       hash: md5
-      md5: 08a90791d045b882580267b7cabd95fd
+      md5: ab1910198083d0f81eea34b4eb2a2133
       size: 14717
     - path: src/DeepfakeDetection/pipeline/stage_04_model_evaluation.py
       hash: md5
@@ -137,7 +137,7 @@ stages:
       size: 1534
     params:
       params.yaml:
-        batch_size: 16
+        batch_size: 12
         input_shape:
         - 224
         - 224
@@ -147,5 +147,5 @@ stages:
     outs:
     - path: artifacts/model_evaluation/score.json
       hash: md5
-      md5: a43e5b2f1acc1b4e009d2d3b3af26954
-      size: 202
+      md5: 44760479755c3efe89c871137fe5e932
+      size: 201

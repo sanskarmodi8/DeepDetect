@@ -529,20 +529,20 @@ class ModelTraining:
             mlflow.log_param("epochs", self.config.epochs)
             mlflow.log_param("sequence_length", self.config.sequence_length)
 
-        # Define model signature
-        input_example = next(iter(self.train_loader))[0][:1].to(self.device)
-        _, model_output = model(input_example)  # Unpack the tuple
-        model_signature = mlflow.models.infer_signature(
-            input_example.cpu().numpy(), model_output.detach().cpu().numpy()
-        )
+            input_batch = next(iter(self.train_loader))[0]
+            input_example = input_batch[:1].to(self.device)
+            _, model_output = model(input_example)
+            model_signature = mlflow.models.infer_signature(
+                input_example.cpu().numpy(), model_output.detach().cpu().numpy()
+            )
 
-        # Log model with signature
-        mlflow.pytorch.log_model(
-            model,
-            "model",
-            signature=model_signature,
-            input_example=input_example.cpu().numpy(),
-        )
+            # Log model with signature
+            mlflow.pytorch.log_model(
+                model,
+                "model",
+                signature=model_signature,
+                input_example=input_example.cpu().numpy(),
+            )
 
         logger.info("Training completed!")
 
