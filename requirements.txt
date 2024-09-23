@@ -3,7 +3,7 @@ torch
 torchvision
 transformers
 numpy
-sklearn
+scikit-learn
 pandas
 opencv-python
 face_recognition
@@ -15,11 +15,6 @@ mlflow
 pyYAML
 dvc
 python-dotenv
-
-# Testing and Model Explainability
-pytest
-shap
-lime
 
 # User Interface
 gradio

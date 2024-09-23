@@ -30,7 +30,7 @@ class ModelEvaluationPipeline:
         Returns:
             None
         """
-        self.model_evaluation.initialize_mlflow()  # Initialize mlflow logging
+        # self.model_evaluation.initialize_mlflow()  # Initialize mlflow logging
         self.model_evaluation.execute()
 
 

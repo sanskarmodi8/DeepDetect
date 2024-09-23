@@ -16,7 +16,7 @@ class ModelTrainingPipeline:
         config = ConfigurationManager()
         model_training_config = config.get_model_training_config()
         model_training = ModelTraining(model_training_config)
-        model_training.initialize_mlflow()  # Initialize mlflow logging
+        # model_training.initialize_mlflow()  # Initialize mlflow logging
         model_training.execute()
 
 
