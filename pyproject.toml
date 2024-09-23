@@ -10,7 +10,7 @@ version = "0.0.0"  # Initial version
 description = "Python package to detect Deepfakes using AI"
 authors = [{ name = "Sanskar Modi", email = "sansyprog8@gmail.com" }]
 readme = "README.md"  # Path to the README file
-license = { text = "MIT" }  # Project license
+license = { text = "GPL-3.0" }  # Project license
 dependencies = []  # Project dependencies
 
 [project.urls]
