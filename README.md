@@ -6,7 +6,6 @@ In an era where seeing is no longer believing, [DeepDetect](https://huggingface.
 
 [![DeepDetect App](https://github.com/sanskarmodi8/DeepDetect/blob/main/.github_assets/app.png?raw=true)](https://huggingface.co/spaces/SanskarModi/DeepDetect)
 
-[Try DeepDetect Now](https://huggingface.co/spaces/SanskarModi/DeepDetect)
 
 <br/>
 
