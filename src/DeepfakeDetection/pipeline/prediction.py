@@ -1,15 +1,14 @@
 import cv2
-import face_recognition
 import mlflow
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn.functional as F
 from dotenv import load_dotenv
+from mtcnn import MTCNN
 from torchvision import transforms
 
-from src.DeepfakeDetection.constants import PARAMS_FILE_PATH
-from src.DeepfakeDetection.utils.common import read_yaml
+from DeepfakeDetection.constants import PARAMS_FILE_PATH
+from DeepfakeDetection.utils.common import read_yaml
 
 load_dotenv()
 
@@ -21,13 +20,16 @@ class Prediction:
         """
         self.device = torch.device("cpu")
         self.model = mlflow.pytorch.load_model(
-            "runs:/7e7834bd633249e69f35ec4c52288c73/model"
+            "runs:/7e7834bd633249e69f35ec4c52288c73/model", map_location=self.device
         )
-        self.model.to(self.device)
         self.model.eval()
-        self.expansion_factor = read_yaml(PARAMS_FILE_PATH).expansion_factor
-        self.resolution = read_yaml(PARAMS_FILE_PATH).resolution
-        self.frame_count = read_yaml(PARAMS_FILE_PATH).sequence_length
+        params = read_yaml(PARAMS_FILE_PATH)
+        self.expansion_factor = params.expansion_factor
+        self.resolution = params.resolution
+        self.frame_count = params.sequence_length
+
+        # Initialize MTCNN
+        self.face_detector = MTCNN()
 
     def get_frames(self, video):
         """
@@ -35,15 +37,23 @@ class Prediction:
         """
         vidobj = cv2.VideoCapture(video)
         success, image = vidobj.read()
+        print(f"Image: {image}, Image shape: {image.shape}, dtype: {image.dtype}")
         while success:
             yield image
             success, image = vidobj.read()
 
     def get_face(self, frame):
-        """
-        Get the face locations from the given frames.
-        """
-        return face_recognition.face_locations(frame)
+        try:
+            # MTCNN expects RGB images
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            faces = self.face_detector.detect_faces(rgb_frame)
+            if faces:
+                return faces[0]["box"]  # Returns [x, y, width, height]
+            return None
+        except Exception as e:
+            print(f"Error in get_face: {e}")
+            print(f"Frame shape: {frame.shape}, dtype: {frame.dtype}")
+            raise
 
     def preprocess(self, video):
         """
@@ -63,19 +73,19 @@ class Prediction:
                 ),
             ]
         )
+
         for idx, frame in enumerate(self.get_frames(video)):
             if idx < self.frame_count:
                 face = self.get_face(frame)
-                if len(face) > 0:
-                    t, r, b, l = face[0]
-                    h = b - t
-                    w = l - r
-                    t = max(0, t - int(h * self.expansion_factor / 2))
-                    b = min(frame.shape[0], b + int(h * self.expansion_factor / 2))
-                    l = max(0, l - int(w * self.expansion_factor / 2))
-                    r = min(frame.shape[1], r + int(w * self.expansion_factor / 2))
+                if face is not None:
+                    x, y, w, h = face
+                    t = max(0, y - int(h * self.expansion_factor / 2))
+                    b = min(frame.shape[0], y + h + int(h * self.expansion_factor / 2))
+                    l = max(0, x - int(w * self.expansion_factor / 2))
+                    r = min(frame.shape[1], x + w + int(w * self.expansion_factor / 2))
                     cropped = cv2.resize(frame[t:b, l:r, :], tuple(self.resolution))
                     frames.append(cropped)
+
         frames = [transform(frame) for frame in frames]
         return frames
 
@@ -89,7 +99,6 @@ class Prediction:
         """
         Compute Grad-CAM using feature maps and gradients.
         """
-
         pooled_grads = torch.mean(grads, dim=[0])
         for i in range(fmap.shape[1]):
             fmap[:, i, :, :] *= pooled_grads[i]
@@ -133,6 +142,9 @@ class Prediction:
 
     def predict(self, video):
         frames = self.preprocess(video)
+        if not frames:
+            return "No faces detected in the video", None
+
         input_tensor = torch.stack([frame.float() for frame in frames]).unsqueeze(0)
         input_tensor = input_tensor.view(1, self.frame_count, 3, *self.resolution)
         input_tensor = input_tensor.to(self.device)
@@ -158,16 +170,16 @@ class Prediction:
         )
         prediction_string = f"{prediction} : {confidence_percentage:.2f}% confidence"
 
-        if prediction == "REAL":
-            best_frame_index = np.argmin(frame_predictions)
-        else:
-            best_frame_index = np.argmax(frame_predictions)
+        best_frame_index = (
+            np.argmax(frame_predictions)
+            if prediction == "FAKE/MANIPULATED"
+            else np.argmin(frame_predictions)
+        )
 
         # Backpropagate to get gradients
-        self.model.train()
+        self.model.zero_grad()
         output[:, 1].backward()
         grads = self.gradients
-        self.model.eval()
 
         # Generate Grad-CAM image
         gradcam_image = self.generate_gradcam(
