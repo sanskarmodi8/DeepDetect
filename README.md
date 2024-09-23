@@ -4,6 +4,7 @@
 
 In the age of deepfakes, seeing is no longer believing. But even if you can't trust your eyes, you can trust us.
 <br/>
+
 [DeepDetect](https://huggingface.co/spaces/SanskarModi/DeepDetect) is an AI Powered Application to help you see the reality.
 <br/>
 <br/>
