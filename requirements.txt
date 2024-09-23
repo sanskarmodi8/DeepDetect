@@ -6,9 +6,11 @@ numpy
 scikit-learn
 pandas
 opencv-python
-face_recognition
 pillow
-dlib==19.22.1
+tensorflow
+mtcnn
+face_recognition
+dlib
 
 # Machine Learning Workflow, pipelines, Model Management, env, and Configuration
 mlflow
