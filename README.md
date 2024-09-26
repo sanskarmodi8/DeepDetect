@@ -133,5 +133,5 @@ This project is licensed under the [GPL-3.0 License](https://www.gnu.org/license
 ---
 
 <p align="center">
-  Made with ❤️ by [Sanskar Modi]
+  Made with ❤️ by Sanskar Modi
 </p>
