@@ -112,7 +112,8 @@ python app.py
 
 ## 🔮 Future Goals
 
-- [ ] Implement Grad-CAM for enhanced explainability
+- [ ] Use Attention weights along with Feature maps in Grad-CAM for enhanced explainability
+- [ ] Use MTCNN in Preprocessing component instead of face_recognition
 - [ ] Scale up training with larger datasets and sequence lengths
 - [ ] Add user-configurable sequence length in the application
 
