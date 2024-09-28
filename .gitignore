@@ -162,5 +162,3 @@ cython_debug/
 #.idea/
 
 artifacts/
-dvc.lock
-.dvc
