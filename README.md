@@ -43,25 +43,25 @@ While we are confident the results wil be promising after traning the model on a
 ```
 DeepDetect/
 │
-├── src/
-│   └── DeepfakeDetection/
-│       ├── components/
-│       ├── utils/
-│       ├── config/
-│       ├── pipeline/
-│       ├── entity/
-│       └── constants/
+├── src/                            # Source code directory
+│   └── DeepfakeDetection/          # Main package for the deepfake detection functionality
+│       ├── components/             # Modular components of the detection pipeline (e.g., data loading, preprocessing, model training)
+│       ├── utils/                  # Utility functions and helper modules
+│       ├── config/                 # Configuration file for different components
+│       ├── pipeline/               # Scripts defining the overall detection pipeline
+│       ├── entity/                 # Data entity classes
+│       └── constants/              # Constant values used throughout the project
 │
-├── config/
-├── app.py
-├── Dockerfile
-├── requirements.txt
-├── pyproject.toml
-├── main.py
-├── params.yaml
-├── dvc.yaml
-├── structure.py
-└── format.sh
+├── config/                         # Global configuration files
+├── app.py                          # Main application file using Gradio
+├── Dockerfile                      # Instructions for building a Docker container
+├── requirements.txt                # Python dependencies for the project
+├── pyproject.toml                  # Project metadata and build system requirements
+├── main.py                         # Entry point for running the entire pipeline
+├── params.yaml                     # Parameters for model training and evaluation
+├── dvc.yaml                        # Data Version Control configuration
+├── structure.py                    # Script to generate or manage project structure
+└── format.sh                       # Shell script for code formatting
 ```
 
 ## 🚀 Setup
