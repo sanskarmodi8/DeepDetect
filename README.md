@@ -104,6 +104,8 @@ python src/DeepfakeDetection/pipeline/stage_03_model_training.py
 python src/DeepfakeDetection/pipeline/stage_04_model_evaluation.py
 ```
 
+If you intend to use MLFLOW then you have to save ytour MLFLOW credentials in .env file at root level and update `src/DeepDetect/pipeline/stage_03_model_training.py` and `src/DeepDetect/pipeline/stage_04_model_evaluation.py` accordingly as mentioned in the comments.
+
 ### Launch Gradio Interface
 
 ```bash
