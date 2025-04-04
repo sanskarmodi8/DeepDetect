@@ -10,12 +10,12 @@ expansion_factor: 0.2
 # training and evaluation
 input_shape: [224, 224, 3]
 batch_size: 12
-sequence_length: 10  
-num_workers: 4
+sequence_length: 100 
+num_workers: 8
 dropout_rate: 0.5  
 units: 2048
 learning_rate: 0.0001
-epochs: 200
+epochs: 500
 lstm_layers: 1
 bidirectional: True
 weight_decay: 0.00001

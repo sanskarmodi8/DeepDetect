@@ -152,18 +152,18 @@ class ResNextLSTMModel(nn.Module):
         attn_weights = F.softmax(attn_weights, dim=1)
         x_attn = torch.bmm(attn_weights.unsqueeze(1), x_lstm).squeeze(1)
 
-        return fmap, self.dp(self.linear1(x_attn))
+        return fmap, attn_weights, self.dp(self.linear1(x_attn))
 
 
 class ModelStrategy(ABC):
     @abstractmethod
-    def build_model(self, config, num_classes=2):
+    def build_model(self, config, num_classes=5):
         """
         Builds a model based on the given configuration.
 
         Args:
             config (ModelTrainingConfig): The configuration object.
-            num_classes (int, optional): The number of classes. Defaults to 2.
+            num_classes (int, optional): The number of classes. Defaults to 5.
 
         Returns:
             nn.Module: The built model.
@@ -207,13 +207,13 @@ class TrainingStrategy(ABC):
 
 
 class ResNextLSTMStrategy(ModelStrategy):
-    def build_model(self, config, num_classes=2):
+    def build_model(self, config, num_classes=5):
         """
         Builds a ResNext-LSTM model based on the given configuration.
 
         Args:
             config (ModelTrainingConfig): The configuration object.
-            num_classes (int, optional): The number of classes. Defaults to 2.
+            num_classes (int, optional): The number of classes. Defaults to 5.
 
         Returns:
             nn.Module: The built ResNext-LSTM model.
@@ -265,7 +265,7 @@ class StandardTrainingStrategy(TrainingStrategy):
                 optimizer.zero_grad()
 
             running_loss += loss.item()
-            _, predicted = outputs.max(1)
+            _, _, predicted = outputs.max(1)
             total += labels.size(0)
             correct += predicted.eq(labels).sum().item()
 
@@ -380,12 +380,30 @@ class ModelTraining:
                 video_paths.append(os.path.join(original_path, video))
                 labels.append(0)  # 0 for real
 
-        # Load fake videos
-        fake_path = os.path.join(split_path, "fake")
-        for video in os.listdir(fake_path):
+        # Load fake videos (face2face)
+        face2face_path = os.path.join(split_path, "Face2Face")
+        for video in os.listdir(face2face_path):
             if video.endswith(".mp4"):
-                video_paths.append(os.path.join(fake_path, video))
-                labels.append(1)  # 1 for fake
+                video_paths.append(os.path.join(face2face_path, video))
+                labels.append(1)
+        # Load fake videos (faceswap)
+        faceswap_path = os.path.join(split_path, "FaceSwap")
+        for video in os.listdir(faceswap_path):
+            if video.endswith(".mp4"):
+                video_paths.append(os.path.join(faceswap_path, video))
+                labels.append(2)
+        # Load fake videos (faceshifter)
+        faceshifter_path = os.path.join(split_path, "FaceShifter")
+        for video in os.listdir(faceshifter_path):
+            if video.endswith(".mp4"):
+                video_paths.append(os.path.join(faceshifter_path, video))
+                labels.append(3)
+        # Load fake videos (neuraltextures)
+        neuraltextures_path = os.path.join(split_path, "NeuralTextures")
+        for video in os.listdir(neuraltextures_path):
+            if video.endswith(".mp4"):
+                video_paths.append(os.path.join(neuraltextures_path, video))
+                labels.append(4)
 
         return video_paths, labels
 

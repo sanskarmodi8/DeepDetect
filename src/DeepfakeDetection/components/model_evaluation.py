@@ -145,7 +145,7 @@ class ResNextLSTMEvaluationStrategy(EvaluationStrategy):
             for inputs, labels in tqdm(dataloader, desc="Evaluating"):
                 inputs, labels = inputs.to(device), labels.to(device)
 
-                _, outputs = model(inputs)
+                _, _, outputs = model(inputs)
                 loss = criterion(outputs, labels)
 
                 running_loss += loss.item()
@@ -227,7 +227,16 @@ class ResNextLSTMEvaluationStrategy(EvaluationStrategy):
                     x=np.array(all_preds)[np.array(all_labels) == 0], name="Real"
                 ),
                 go.Histogram(
-                    x=np.array(all_preds)[np.array(all_labels) == 1], name="Fake"
+                    x=np.array(all_preds)[np.array(all_labels) == 1], name="Fake (Face2Face)"
+                ),
+                go.Histogram(
+                    x=np.array(all_preds)[np.array(all_labels) == 2], name="Fake (FaceSwap)"
+                ),
+                go.Histogram(
+                    x=np.array(all_preds)[np.array(all_labels) == 3], name="Fake (FaceShifter)"
+                ),
+                go.Histogram(
+                    x=np.array(all_preds)[np.array(all_labels) == 4], name="Fake (NeuralTextures)"
                 ),
             ]
         )
@@ -307,11 +316,30 @@ class ModelEvaluation:
                 video_paths.append(os.path.join(original_path, video))
                 labels.append(0)  # 0 for real
 
-        fake_path = os.path.join(data_path, "fake")
-        for video in os.listdir(fake_path):
+        face2face_path = os.path.join(data_path, "Face2Face")
+        for video in os.listdir(face2face_path):
             if video.endswith(".mp4"):
-                video_paths.append(os.path.join(fake_path, video))
-                labels.append(1)  # 1 for fake
+                video_paths.append(os.path.join(face2face_path, video))
+                labels.append(1)
+        # 1 for Face2Face
+        faceswap_path = os.path.join(data_path, "FaceSwap")
+        for video in os.listdir(faceswap_path):
+            if video.endswith(".mp4"):
+                video_paths.append(os.path.join(faceswap_path, video))
+                labels.append(2)
+        # 2 for FaceSwap
+        faceshifter_path = os.path.join(data_path, "FaceShifter")
+        for video in os.listdir(faceshifter_path):
+            if video.endswith(".mp4"):
+                video_paths.append(os.path.join(faceshifter_path, video))
+                labels.append(3)
+        # 3 for FaceShifter
+        neuraltextures_path = os.path.join(data_path, "NeuralTextures")
+        for video in os.listdir(neuraltextures_path):
+            if video.endswith(".mp4"):
+                video_paths.append(os.path.join(neuraltextures_path, video))
+                labels.append(4)
+        # 4 for NeuralTextures
 
         return video_paths, labels
 
