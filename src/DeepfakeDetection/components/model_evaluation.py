@@ -227,16 +227,20 @@ class ResNextLSTMEvaluationStrategy(EvaluationStrategy):
                     x=np.array(all_preds)[np.array(all_labels) == 0], name="Real"
                 ),
                 go.Histogram(
-                    x=np.array(all_preds)[np.array(all_labels) == 1], name="Fake (Face2Face)"
+                    x=np.array(all_preds)[np.array(all_labels) == 1],
+                    name="Fake (Face2Face)",
                 ),
                 go.Histogram(
-                    x=np.array(all_preds)[np.array(all_labels) == 2], name="Fake (FaceSwap)"
+                    x=np.array(all_preds)[np.array(all_labels) == 2],
+                    name="Fake (FaceSwap)",
                 ),
                 go.Histogram(
-                    x=np.array(all_preds)[np.array(all_labels) == 3], name="Fake (FaceShifter)"
+                    x=np.array(all_preds)[np.array(all_labels) == 3],
+                    name="Fake (FaceShifter)",
                 ),
                 go.Histogram(
-                    x=np.array(all_preds)[np.array(all_labels) == 4], name="Fake (NeuralTextures)"
+                    x=np.array(all_preds)[np.array(all_labels) == 4],
+                    name="Fake (NeuralTextures)",
                 ),
             ]
         )

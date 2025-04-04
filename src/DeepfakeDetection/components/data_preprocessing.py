@@ -4,9 +4,10 @@ from abc import ABC, abstractmethod
 import cv2
 import face_recognition
 import numpy as np
+import torch
+from facenet_pytorch import MTCNN
 from sklearn.model_selection import StratifiedShuffleSplit
 from tqdm import tqdm
-from mtcnn import MTCNN
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import DataPreprocessingConfig
@@ -61,25 +62,18 @@ class OpenCVFrameExtraction(FrameExtractionStrategy):
             success, image = vidobj.read()
 
 
-class FaceRecognitionStrategy(FaceDetectionStrategy):
-    def detect_faces(self, frames):
-        """
-        Detect faces in a list of frames.
-
-        Args:
-            frames (list): A list of numpy arrays, where each array is a frame from a video.
-
-        Returns:
-            A list of lists of face bounding boxes, where each inner list is a list of bounding boxes for a frame.
-        """
-        return face_recognition.batch_face_locations(frames)
-
 class MTCNNStrategy(FaceDetectionStrategy):
-    def __init__(self):
+    def __init__(self, config):
         """
-        Initializes the MTCNN face detector.
+        Initializes the MTCNN face detector with GPU acceleration.
         """
-        self.face_detector = MTCNN()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {self.device}")
+
+        # Initialize MTCNN with GPU support
+        self.face_detector = MTCNN(keep_all=True, device=self.device)
+
+        self.resolution = config.resolution  # Ensure resolution is a tuple (width, height)
 
     def detect_faces(self, frames):
         """
@@ -93,32 +87,38 @@ class MTCNNStrategy(FaceDetectionStrategy):
             Each box follows the format: [top, right, bottom, left] to match FaceRecognitionStrategy.
         """
         faces = []
-        for frame in frames:
-            try:
-                # Convert BGR to RGB for MTCNN
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        try:
+            fixed_size = self.resolution  # Ensure this is a tuple (width, height)
 
-                # Detect faces
-                detections = self.face_detector.detect_faces(rgb_frame)
+            # Ensure all frames are resized to exactly the same dimensions
+            rgb_frames = [
+                cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), fixed_size, interpolation=cv2.INTER_LINEAR)
+                for frame in frames
+            ]
 
-                # Extract bounding boxes and convert from [x, y, width, height] to [top, right, bottom, left]
-                face_boxes = []
-                if detections:
-                    for det in detections:
-                        x, y, width, height = det["box"]
-                        # Convert to [top, right, bottom, left] format
-                        top = y
-                        right = x + width
-                        bottom = y + height
-                        left = x
-                        face_boxes.append([top, right, bottom, left])
-                
-                faces.append(face_boxes)
-            except Exception as e:
-                print(f"Error processing frame: {e}")
-                faces.append([])  # Append empty list if an error occurs
+            # Convert to tensor batch and move to GPU
+            frame_tensors = torch.stack([
+                torch.tensor(frame, dtype=torch.uint8, device=self.device).permute(2, 0, 1)
+                for frame in rgb_frames
+            ])
+
+            # Run MTCNN in batch mode
+            boxes, _ = self.face_detector.detect(frame_tensors.permute(0, 2, 3, 1))  # Convert back to batch of images
+
+            # Format output to match face_recognition's [top, right, bottom, left]
+            for box_list in boxes:
+                if box_list is not None:
+                    formatted_boxes = [[int(y1), int(x2), int(y2), int(x1)] for x1, y1, x2, y2 in box_list]
+                    faces.append(formatted_boxes)
+                else:
+                    faces.append([])  # No face detected in this frame
+
+        except Exception as e:
+            print(f"Error processing frames: {e}")
+            faces = [[] for _ in frames]  # Return empty lists for all frames if an error occurs
 
         return faces
+
 
 
 class DataPreprocessing:
@@ -136,8 +136,7 @@ class DataPreprocessing:
         """
         self.config = config
         self.frame_extraction_strategy = OpenCVFrameExtraction()
-        # self.face_detection_strategy = FaceRecognitionStrategy()
-        self.face_detection_strategy = MTCNNStrategy()
+        self.face_detection_strategy = MTCNNStrategy(self.config)
 
     def write_video(self, output_path, frames):
         """
@@ -272,12 +271,26 @@ class DataPreprocessing:
         """
 
         output_original_dir = os.path.join(self.config.root_dir, split_name, "original")
-        output_face2face_dir = os.path.join(self.config.root_dir, split_name, "Face2Face")
-        output_faceshifter_dir = os.path.join(self.config.root_dir, split_name, "FaceShifter")
+        output_face2face_dir = os.path.join(
+            self.config.root_dir, split_name, "Face2Face"
+        )
+        output_faceshifter_dir = os.path.join(
+            self.config.root_dir, split_name, "FaceShifter"
+        )
         output_faceswap_dir = os.path.join(self.config.root_dir, split_name, "FaceSwap")
-        output_neuraltextures_dir = os.path.join(self.config.root_dir, split_name, "NeuralTextures")
-        
-        create_directories([output_original_dir, output_face2face_dir, output_faceshifter_dir, output_faceswap_dir, output_neuraltextures_dir])
+        output_neuraltextures_dir = os.path.join(
+            self.config.root_dir, split_name, "NeuralTextures"
+        )
+
+        create_directories(
+            [
+                output_original_dir,
+                output_face2face_dir,
+                output_faceshifter_dir,
+                output_faceswap_dir,
+                output_neuraltextures_dir,
+            ]
+        )
 
         for video_file in tqdm(video_files, desc=f"Processing {split_name} split"):
             folder, _ = video_file

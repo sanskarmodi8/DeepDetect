@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from dotenv import load_dotenv
-from mtcnn import MTCNN
+from facenet_pytorch import MTCNN
 from torchvision import transforms
 
 from DeepfakeDetection.constants import PARAMS_FILE_PATH
@@ -29,7 +29,10 @@ class Prediction:
         self.frame_count = params.sequence_length
 
         # Initialize MTCNN
-        self.face_detector = MTCNN()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {self.device}")
+        self.face_detector = MTCNN(keep_all=False, device=self.device)  # keep_all=False returns only first detected face
+
 
     def get_frames(self, video):
         """
@@ -44,12 +47,19 @@ class Prediction:
 
     def get_face(self, frame):
         try:
-            # MTCNN expects RGB images
+            # Convert frame from BGR (OpenCV) to RGB
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            faces = self.face_detector.detect_faces(rgb_frame)
-            if faces:
-                return faces[0]["box"]  # Returns [x, y, width, height]
-            return None
+
+            # Detect face bounding box
+            boxes, _ = self.face_detector.detect(rgb_frame)
+
+            # If a face is detected, return the first detected face's bounding box
+            if boxes is not None and len(boxes) > 0:
+                x1, y1, x2, y2 = boxes[0]  # MTCNN returns [x1, y1, x2, y2]
+                width, height = x2 - x1, y2 - y1
+                return [int(x1), int(y1), int(width), int(height)]  # Convert to [x, y, width, height]
+
+            return None  # No face detected
         except Exception as e:
             print(f"Error in get_face: {e}")
             print(f"Frame shape: {frame.shape}, dtype: {frame.dtype}")
