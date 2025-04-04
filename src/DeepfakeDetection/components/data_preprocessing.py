@@ -6,6 +6,7 @@ import face_recognition
 import numpy as np
 from sklearn.model_selection import StratifiedShuffleSplit
 from tqdm import tqdm
+from mtcnn import MTCNN
 
 from DeepfakeDetection import logger
 from DeepfakeDetection.entity.config_entity import DataPreprocessingConfig
@@ -73,6 +74,52 @@ class FaceRecognitionStrategy(FaceDetectionStrategy):
         """
         return face_recognition.batch_face_locations(frames)
 
+class MTCNNStrategy(FaceDetectionStrategy):
+    def __init__(self):
+        """
+        Initializes the MTCNN face detector.
+        """
+        self.face_detector = MTCNN()
+
+    def detect_faces(self, frames):
+        """
+        Detect faces in a list of frames using MTCNN.
+
+        Args:
+            frames (list): A list of numpy arrays, where each array is a frame from a video.
+
+        Returns:
+            A list of lists of face bounding boxes, where each inner list is a list of bounding boxes for a frame.
+            Each box follows the format: [top, right, bottom, left] to match FaceRecognitionStrategy.
+        """
+        faces = []
+        for frame in frames:
+            try:
+                # Convert BGR to RGB for MTCNN
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+                # Detect faces
+                detections = self.face_detector.detect_faces(rgb_frame)
+
+                # Extract bounding boxes and convert from [x, y, width, height] to [top, right, bottom, left]
+                face_boxes = []
+                if detections:
+                    for det in detections:
+                        x, y, width, height = det["box"]
+                        # Convert to [top, right, bottom, left] format
+                        top = y
+                        right = x + width
+                        bottom = y + height
+                        left = x
+                        face_boxes.append([top, right, bottom, left])
+                
+                faces.append(face_boxes)
+            except Exception as e:
+                print(f"Error processing frame: {e}")
+                faces.append([])  # Append empty list if an error occurs
+
+        return faces
+
 
 class DataPreprocessing:
     def __init__(self, config: DataPreprocessingConfig):
@@ -89,7 +136,8 @@ class DataPreprocessing:
         """
         self.config = config
         self.frame_extraction_strategy = OpenCVFrameExtraction()
-        self.face_detection_strategy = FaceRecognitionStrategy()
+        # self.face_detection_strategy = FaceRecognitionStrategy()
+        self.face_detection_strategy = MTCNNStrategy()
 
     def write_video(self, output_path, frames):
         """
@@ -224,8 +272,12 @@ class DataPreprocessing:
         """
 
         output_original_dir = os.path.join(self.config.root_dir, split_name, "original")
-        output_fake_dir = os.path.join(self.config.root_dir, split_name, "fake")
-        create_directories([output_original_dir, output_fake_dir])
+        output_face2face_dir = os.path.join(self.config.root_dir, split_name, "Face2Face")
+        output_faceshifter_dir = os.path.join(self.config.root_dir, split_name, "FaceShifter")
+        output_faceswap_dir = os.path.join(self.config.root_dir, split_name, "FaceSwap")
+        output_neuraltextures_dir = os.path.join(self.config.root_dir, split_name, "NeuralTextures")
+        
+        create_directories([output_original_dir, output_face2face_dir, output_faceshifter_dir, output_faceswap_dir, output_neuraltextures_dir])
 
         for video_file in tqdm(video_files, desc=f"Processing {split_name} split"):
             folder, _ = video_file
@@ -233,8 +285,14 @@ class DataPreprocessing:
             # Check whether the video is 'original' or 'fake' based on the folder name
             if folder == "original":
                 output_dir = output_original_dir
-            elif folder == "manipulated":
-                output_dir = output_fake_dir
+            elif folder == "Face2Face":
+                output_dir = output_face2face_dir
+            elif folder == "FaceShifter":
+                output_dir = output_faceshifter_dir
+            elif folder == "FaceSwap":
+                output_dir = output_faceswap_dir
+            elif folder == "NeuralTextures":
+                output_dir = output_neuraltextures_dir
             else:
                 raise ValueError(f"Unexpected folder name: {folder}")
 
@@ -276,6 +334,9 @@ class DataPreprocessing:
         val_files = [train_files[i] for i in val_indices]
         train_files_final = [train_files[i] for i in train_indices_final]
 
+        logger.info(
+            f"Train size: {len(train_files_final)}, Validation size: {len(val_files)}, Test size: {len(test_files)}"
+        )
         return train_files_final, val_files, test_files
 
     def run(self):
@@ -288,7 +349,7 @@ class DataPreprocessing:
         """
         files = [
             (folder, file)
-            for folder in ["manipulated", "original"]
+            for folder in os.listdir(self.config.data_path)
             for file in sorted(os.listdir(os.path.join(self.config.data_path, folder)))
         ]
 

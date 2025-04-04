@@ -1,5 +1,5 @@
 # data ingestion
-num_videos: 1200
+num_videos: 1000
 
 # preprocessing
 fps: 30
