@@ -8,7 +8,7 @@ In the age of deepfakes, seeing is no longer believing. But even if you can't tr
 [DeepDetect](https://huggingface.co/spaces/SanskarModi/DeepDetect) is an AI Powered Application to help you see the reality.
 <br/>
 <br/>
-[![DeepDetect App](https://github.com/sanskarmodi8/DeepDetect/blob/main/.github_assets/app.png?raw=true)](https://huggingface.co/spaces/SanskarModi/DeepDetect)
+[![DeepDetect API](https://github.com/sanskarmodi8/DeepDetect/blob/main/.github_assets/app.png?raw=true)](https://deepsight-f7b7g8grc3czg7gq.centralindia-01.azurewebsites.net/)
 
 
 <br/>
