@@ -33,7 +33,7 @@ class Prediction:
         )
 
         # Define the classes for prediction
-        self.classes = ["original", "Face2Face", "FaceShifter", "FaceSwap", "NeuralTextures"]
+        self.classes = ["original", "Deepfake (Face2Face)", "Deepfake (FaceShifter)", "Deepfake (FaceSwap)", "Deepfake (NeuralTextures)"]
 
     def get_frames(self, video):
         """
@@ -288,17 +288,18 @@ class Prediction:
         # Get the predicted class
         predicted_class_idx = np.argmax(class_probs)
         predicted_class = self.classes[predicted_class_idx] if predicted_class_idx < len(self.classes) else "Unknown"
-        
-        confidence = class_probs[predicted_class_idx] * 100
-        prediction_string = f"{predicted_class} : {confidence:.2f}% confidence"
+        prediction = "Deepfake" if predicted_class_idx > 0 else "Real"
+        confidence_class = class_probs[predicted_class_idx] * 100
+        confidence_deepfake_real = class_probs[1:].max() * 100 if prediction== "Deepfake" else class_probs[0] * 100
+        prediction_string = f"{prediction} : {confidence_deepfake_real}% Confidence"
 
         # Create detailed classification results
         classification_details = {
-            "predicted_class": predicted_class,
-            "confidence": confidence,
-            "class_probabilities": {
-                self.classes[i]: class_probs[i] * 100 for i in range(len(self.classes))
-            }
+            "Deepfake type": predicted_class,
+            "confidence": confidence_class,
+        } if prediction == "Deepfake" else {
+            "Deepfake type": "None (Real video)",
+            "confidence": confidence_class,
         }
 
         # Backpropagate for Grad-CAM

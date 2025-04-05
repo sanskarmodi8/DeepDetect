@@ -66,7 +66,7 @@ DeepDetect/
 
 1. Clone this repository
 2. Install Python >=3.9
-3. Run: `pip install -r requirements.txt`
+3. Add `.e` to the end of requirements.txt and then => Run: `pip install -r requirements.txt`
 4. Install Docker (optional)
 5. Install CMake: `sudo apt install cmake` (Ubuntu) or download from [CMake Official Website](https://cmake.org/download/)
 6. Download the [FaceForensics++](https://github.com/ondyari/FaceForensics) data. Make sure to replace the value of `source_data` in `config/config.yaml` with the correct path to the downloaded data folder on your system.
