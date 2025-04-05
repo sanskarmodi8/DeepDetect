@@ -3,9 +3,10 @@ from abc import ABC, abstractmethod
 
 import cv2
 import face_recognition
+
+import mediapipe as mp
+from typing import List, Tuple
 import numpy as np
-import torch
-from facenet_pytorch import MTCNN
 from sklearn.model_selection import StratifiedShuffleSplit
 from tqdm import tqdm
 
@@ -61,64 +62,61 @@ class OpenCVFrameExtraction(FrameExtractionStrategy):
             yield image
             success, image = vidobj.read()
 
+class FaceRecognitionStrategy(FaceDetectionStrategy):
+     def detect_faces(self, frames):
+         """
+         Detect faces in a list of frames.
+ 
+         Args:
+             frames (list): A list of numpy arrays, where each array is a frame from a video.
+ 
+         Returns:
+             A list of lists of face bounding boxes, where each inner list is a list of bounding boxes for a frame.
+         """
+         return face_recognition.batch_face_locations(frames)
 
-class MTCNNStrategy(FaceDetectionStrategy):
-    def __init__(self, config):
-        """
-        Initializes the MTCNN face detector with GPU acceleration.
-        """
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"Using device: {self.device}")
+class MediaPipeStrategy:
+    def __init__(self, min_detection_confidence=0.6, model_selection=0):
+        self.min_detection_confidence = min_detection_confidence
+        self.model_selection = model_selection
+        self.face_detection = mp.solutions.face_detection.FaceDetection(
+            model_selection=self.model_selection,
+            min_detection_confidence=self.min_detection_confidence
+        )
 
-        # Initialize MTCNN with GPU support
-        self.face_detector = MTCNN(keep_all=True, device=self.device)
+    def _get_box(self, detection, image_shape):
+        h, w, _ = image_shape
+        bboxC = detection.location_data.relative_bounding_box
 
-        self.resolution = config.resolution  # Ensure resolution is a tuple (width, height)
+        xmin = int(bboxC.xmin * w)
+        ymin = int(bboxC.ymin * h)
+        box_width = int(bboxC.width * w)
+        box_height = int(bboxC.height * h)
 
-    def detect_faces(self, frames):
-        """
-        Detect faces in a list of frames using MTCNN.
+        # Convert to (top, right, bottom, left)
+        top = max(ymin, 0)
+        right = min(xmin + box_width, w)
+        bottom = min(ymin + box_height, h)
+        left = max(xmin, 0)
 
-        Args:
-            frames (list): A list of numpy arrays, where each array is a frame from a video.
+        return (top, right, bottom, left)
 
-        Returns:
-            A list of lists of face bounding boxes, where each inner list is a list of bounding boxes for a frame.
-            Each box follows the format: [top, right, bottom, left] to match FaceRecognitionStrategy.
-        """
-        faces = []
-        try:
-            fixed_size = self.resolution  # Ensure this is a tuple (width, height)
+    def detect_faces(self, images: List[np.ndarray]) -> List[List[Tuple[int, int, int, int]]]:
+        all_faces = []
 
-            # Ensure all frames are resized to exactly the same dimensions
-            rgb_frames = [
-                cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), fixed_size, interpolation=cv2.INTER_LINEAR)
-                for frame in frames
-            ]
+        for img in images:
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            results = self.face_detection.process(img_rgb)
 
-            # Convert to tensor batch and move to GPU
-            frame_tensors = torch.stack([
-                torch.tensor(frame, dtype=torch.uint8, device=self.device).permute(2, 0, 1)
-                for frame in rgb_frames
-            ])
+            face_locations = []
+            if results.detections:
+                for detection in results.detections:
+                    box = self._get_box(detection, img.shape)
+                    face_locations.append(box)
 
-            # Run MTCNN in batch mode
-            boxes, _ = self.face_detector.detect(frame_tensors.permute(0, 2, 3, 1))  # Convert back to batch of images
+            all_faces.append(face_locations)
 
-            # Format output to match face_recognition's [top, right, bottom, left]
-            for box_list in boxes:
-                if box_list is not None:
-                    formatted_boxes = [[int(y1), int(x2), int(y2), int(x1)] for x1, y1, x2, y2 in box_list]
-                    faces.append(formatted_boxes)
-                else:
-                    faces.append([])  # No face detected in this frame
-
-        except Exception as e:
-            print(f"Error processing frames: {e}")
-            faces = [[] for _ in frames]  # Return empty lists for all frames if an error occurs
-
-        return faces
-
+        return all_faces
 
 
 class DataPreprocessing:
@@ -136,7 +134,7 @@ class DataPreprocessing:
         """
         self.config = config
         self.frame_extraction_strategy = OpenCVFrameExtraction()
-        self.face_detection_strategy = MTCNNStrategy(self.config)
+        self.face_detection_strategy = MediaPipeStrategy()
 
     def write_video(self, output_path, frames):
         """

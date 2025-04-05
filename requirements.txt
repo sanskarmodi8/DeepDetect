@@ -9,6 +9,7 @@ opencv-python
 pillow
 tensorflow
 facenet_pytorch
+mediapipe
 mtcnn
 face_recognition
 dlib
