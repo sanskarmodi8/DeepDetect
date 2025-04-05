@@ -229,7 +229,8 @@ class Prediction:
 
         # Resize the cam to match the resolution of the original image
         cam = cv2.resize(cam, tuple(self.resolution))
-        
+        # Convert to single-channel by summing or taking one of the channels
+        cam = np.sum(cam, axis=-1) if cam.shape[-1] > 1 else cam
         return cam
 
     def generate_gradcam(self, fmap, video_frame, grads):
@@ -237,21 +238,20 @@ class Prediction:
         Generate the Grad-CAM heatmap and overlay it on the frame.
         """
         cam = self.grad_cam(fmap, grads)
-        
         # Ensure cam is a single-channel 8-bit image
         cam = np.uint8(255 * cam)  # Scale to 0-255
         heatmap = cv2.applyColorMap(cam, cv2.COLORMAP_JET)  # Apply colormap
 
-        # Make sure video_frame is BGR for overlay
-        if video_frame.shape[-1] == 3:  # Already BGR or RGB
-            video_frame_bgr = cv2.cvtColor(video_frame, cv2.COLOR_RGB2BGR) if video_frame.dtype != np.uint8 else video_frame
-        else:
-            video_frame_bgr = cv2.cvtColor(np.uint8(video_frame * 255), cv2.COLOR_RGB2BGR)
+        # Ensure video_frame is in the right format
+        video_frame = np.float32(cv2.cvtColor(video_frame, cv2.COLOR_RGB2BGR))
 
-        # Blend heatmap and original image
-        alpha = 0.4  # Weight for the heatmap
+        # Convert the normalized video_frame back to uint8 (0-255)
+        video_frame = np.uint8(255 * video_frame)
+
+        # Blend heatmap and original image with a weight to ensure the face is visible
+        alpha = 0.01  # Lower weight for the heatmap to make face more visible
         beta = 1 - alpha  # Weight for the original frame
-        overlayed_img = cv2.addWeighted(heatmap, alpha, video_frame_bgr, beta, 0)
+        overlayed_img = cv2.addWeighted(heatmap, alpha, video_frame, beta, 0)
 
         return overlayed_img
 
