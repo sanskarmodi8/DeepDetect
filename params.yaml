@@ -10,7 +10,7 @@ expansion_factor: 0.2
 # training and evaluation
 input_shape: [224, 224, 3]
 batch_size: 12
-sequence_length: 100 
+sequence_length: 10
 num_workers: 8
 dropout_rate: 0.5  
 units: 2048

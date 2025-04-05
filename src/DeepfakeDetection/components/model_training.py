@@ -6,6 +6,7 @@ import mlflow
 import numpy as np
 import torch
 import torch.nn.functional as F
+from PIL import Image
 from dotenv import load_dotenv
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.utils.class_weight import compute_class_weight
@@ -52,16 +53,25 @@ class VideoDataset(Dataset):
             idx (int): The index of the item to retrieve.
 
         Returns:
-            tuple: A tuple containing the frames of the video and the label. The frames are a tensor of shape (sequence_length, height, width, channels) and the label is a tensor of shape (1,).
+            tuple: A tuple containing the frames of the video and the label.
         """
-
         rng = np.random.default_rng(seed=42)
-
         video_path = self.video_paths[idx]
         label = self.labels[idx]
 
         frames = []
         cap = cv2.VideoCapture(video_path)
+        
+        # Check if video opened successfully
+        if not cap.isOpened():
+            logger.warning(f"Could not open video file: {video_path}")
+            # Create a default frame with zeros - use numpy array to match cv2 output format
+            dummy_frame = np.zeros((224, 224, 3), dtype=np.uint8)  # Using numpy array format
+            if self.transform:
+                dummy_frame = self.transform(dummy_frame)
+            frames = [dummy_frame] * self.sequence_length
+            cap.release()
+            return torch.stack(frames), torch.tensor(label, dtype=torch.long)
 
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if frame_count > self.sequence_length:
@@ -80,11 +90,18 @@ class VideoDataset(Dataset):
         cap.release()
 
         # If we don't have enough frames, pad with zeros
-        while len(frames) < self.sequence_length:
-            frames.append(torch.zeros_like(frames[0]))
+        if len(frames) == 0:
+            # No frames were read, create a default frame as numpy array
+            dummy_frame = np.zeros((224, 224, 3), dtype=np.uint8)  # CV2 returns numpy arrays
+            if self.transform:
+                dummy_frame = self.transform(dummy_frame)
+            frames = [dummy_frame] * self.sequence_length
+        elif len(frames) < self.sequence_length:
+            # Pad with the last frame if we have at least one frame
+            last_frame = frames[-1]
+            frames.extend([last_frame] * (self.sequence_length - len(frames)))
 
         return torch.stack(frames), torch.tensor(label, dtype=torch.long)
-
 
 class ResNextLSTMModel(nn.Module):
     def __init__(
@@ -254,7 +271,7 @@ class StandardTrainingStrategy(TrainingStrategy):
             inputs, labels = inputs.to(device), labels.to(device)
 
             with autocast():
-                _, outputs = model(inputs)
+                _,_, outputs = model(inputs)
                 loss = criterion(outputs, labels)
 
             scaler.scale(loss).backward()
@@ -265,7 +282,7 @@ class StandardTrainingStrategy(TrainingStrategy):
                 optimizer.zero_grad()
 
             running_loss += loss.item()
-            _, _, predicted = outputs.max(1)
+            _, predicted = outputs.max(1)
             total += labels.size(0)
             correct += predicted.eq(labels).sum().item()
 
@@ -299,7 +316,7 @@ class StandardTrainingStrategy(TrainingStrategy):
             for inputs, labels in tqdm(dataloader, desc="Validating"):
                 inputs, labels = inputs.to(device), labels.to(device)
 
-                _, outputs = model(inputs)
+                _,_, outputs = model(inputs)
                 loss = criterion(outputs, labels)
 
                 running_loss += loss.item()
@@ -549,7 +566,7 @@ class ModelTraining:
 
             input_batch = next(iter(self.train_loader))[0]
             input_example = input_batch[:1].to(self.device)
-            _, model_output = model(input_example)
+            _,_, model_output = model(input_example)
             model_signature = mlflow.models.infer_signature(
                 input_example.cpu().numpy(), model_output.detach().cpu().numpy()
             )
