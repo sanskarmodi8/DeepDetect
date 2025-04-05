@@ -15,8 +15,6 @@ from sklearn.metrics import (
     f1_score,
     precision_score,
     recall_score,
-    roc_auc_score,
-    roc_curve,
 )
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
@@ -58,15 +56,25 @@ class VideoDataset(Dataset):
             idx (int): The index of the item to retrieve.
 
         Returns:
-            tuple: A tuple containing the frames of the video and the label. The frames are a tensor of shape (sequence_length, height, width, channels) and the label is a tensor of shape (1,).
+            tuple: A tuple containing the frames of the video and the label.
         """
         rng = np.random.default_rng(seed=42)
-
         video_path = self.video_paths[idx]
         label = self.labels[idx]
 
         frames = []
         cap = cv2.VideoCapture(video_path)
+        
+        # Check if video opened successfully
+        if not cap.isOpened():
+            logger.warning(f"Could not open video file: {video_path}")
+            # Create a default frame with zeros - use numpy array to match cv2 output format
+            dummy_frame = np.zeros((224, 224, 3), dtype=np.uint8)  # Using numpy array format
+            if self.transform:
+                dummy_frame = self.transform(dummy_frame)
+            frames = [dummy_frame] * self.sequence_length
+            cap.release()
+            return torch.stack(frames), torch.tensor(label, dtype=torch.long)
 
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if frame_count > self.sequence_length:
@@ -84,8 +92,17 @@ class VideoDataset(Dataset):
 
         cap.release()
 
-        while len(frames) < self.sequence_length:
-            frames.append(torch.zeros_like(frames[0]))
+        # If we don't have enough frames, pad with zeros
+        if len(frames) == 0:
+            # No frames were read, create a default frame as numpy array
+            dummy_frame = np.zeros((224, 224, 3), dtype=np.uint8)  # CV2 returns numpy arrays
+            if self.transform:
+                dummy_frame = self.transform(dummy_frame)
+            frames = [dummy_frame] * self.sequence_length
+        elif len(frames) < self.sequence_length:
+            # Pad with the last frame if we have at least one frame
+            last_frame = frames[-1]
+            frames.extend([last_frame] * (self.sequence_length - len(frames)))
 
         return torch.stack(frames), torch.tensor(label, dtype=torch.long)
 
@@ -103,21 +120,22 @@ class EvaluationStrategy(ABC):
             device (torch.device): The device to be used for evaluation.
 
         Returns:
-            dict: A dictionary containing the evaluation metrics.
+            tuple: A tuple containing a dictionary of evaluation metrics and a dictionary of plots.
         """
         pass
 
     @abstractmethod
-    def create_plots(self, all_preds, all_labels):
+    def create_plots(self, all_preds, all_labels, pred_classes):
         """
         Creates plots for the given predictions and labels.
 
         Args:
             all_preds (list): List of predicted probabilities.
             all_labels (list): List of true labels.
+            pred_classes (list): List of predicted classes.
 
         Returns:
-            None
+            dict: A dictionary containing the evaluation plots.
         """
         pass
 
@@ -134,12 +152,13 @@ class ResNextLSTMEvaluationStrategy(EvaluationStrategy):
             device (torch.device): The device to be used for evaluation.
 
         Returns:
-            dict: A dictionary containing the evaluation metrics.
+            tuple: A tuple containing a dictionary of evaluation metrics and a dictionary of plots.
         """
         model.eval()
         running_loss = 0.0
         all_preds = []
         all_labels = []
+        pred_classes = []
 
         with torch.no_grad():
             for inputs, labels in tqdm(dataloader, desc="Evaluating"):
@@ -150,111 +169,119 @@ class ResNextLSTMEvaluationStrategy(EvaluationStrategy):
 
                 running_loss += loss.item()
 
-                all_preds.extend(outputs.cpu().numpy()[:, 1])
+                # Store full output probabilities
+                all_preds.append(outputs.cpu().numpy())
                 all_labels.extend(labels.cpu().numpy())
+                
+                # Get predicted class for confusion matrix
+                _, predicted = torch.max(outputs, 1)
+                pred_classes.extend(predicted.cpu().numpy())
 
+        # Concatenate all predictions if there are multiple batches
+        all_preds = np.vstack(all_preds) if len(all_preds) > 0 else np.array([])
+        
         epoch_loss = running_loss / len(dataloader)
-        metrics = self.calculate_metrics(all_labels, all_preds)
+        metrics = self.calculate_metrics(all_labels, all_preds, pred_classes)
         metrics["loss"] = epoch_loss
 
-        plots = self.create_plots(all_preds, all_labels)
+        plots = self.create_plots(all_preds, all_labels, pred_classes)
 
         return metrics, plots
 
-    def calculate_metrics(self, all_labels, all_preds):
+    def calculate_metrics(self, all_labels, all_preds, pred_classes):
         """
         Calculates evaluation metrics from the given predictions and labels.
 
         Args:
             all_labels (list): List of true labels.
-            all_preds (list): List of predicted probabilities.
+            all_preds (ndarray): Array of prediction probabilities for each class.
+            pred_classes (list): List of predicted class indices.
 
         Returns:
             dict: A dictionary containing the evaluation metrics.
         """
-        accuracy = accuracy_score(all_labels, (np.array(all_preds) > 0.5).astype(int))
-        precision = precision_score(
-            all_labels, (np.array(all_preds) > 0.5).astype(int), average="weighted"
-        )
-        recall = recall_score(
-            all_labels, (np.array(all_preds) > 0.5).astype(int), average="weighted"
-        )
-        f1 = f1_score(
-            all_labels, (np.array(all_preds) > 0.5).astype(int), average="weighted"
-        )
-        auc = roc_auc_score(all_labels, all_preds)
+        # Convert to numpy arrays if not already
+        all_labels = np.array(all_labels)
+        pred_classes = np.array(pred_classes)
+        
+        accuracy = accuracy_score(all_labels, pred_classes)
+        
+        try:
+            precision = precision_score(all_labels, pred_classes, average="weighted", zero_division=0)
+            recall = recall_score(all_labels, pred_classes, average="weighted", zero_division=0)
+            f1 = f1_score(all_labels, pred_classes, average="weighted", zero_division=0)
+        except Exception as e:
+            logger.warning(f"Error calculating precision/recall/f1: {str(e)}")
+            precision = recall = f1 = 0.0
 
         return {
             "accuracy": accuracy,
             "precision": precision,
             "recall": recall,
             "f1": f1,
-            "auc": auc,
         }
 
-    def create_plots(self, all_preds, all_labels):
-        # Confusion Matrix
+    def create_plots(self, all_preds, all_labels, pred_classes):
         """
         Creates plots for the given predictions and labels.
 
         Args:
-            all_preds (list): List of predicted probabilities.
+            all_preds (ndarray): Array of prediction probabilities for each class.
             all_labels (list): List of true labels.
+            pred_classes (list): List of predicted class indices.
 
         Returns:
             dict: A dictionary containing the evaluation plots.
         """
-        cm = confusion_matrix(all_labels, (np.array(all_preds) > 0.5).astype(int))
-        cm_plot = go.Figure(data=go.Heatmap(z=cm, zmin=0, zmax=cm.max()))
+        # Convert to numpy arrays for easier handling
+        all_labels = np.array(all_labels)
+        pred_classes = np.array(pred_classes)
+        
+        # Create confusion matrix
+        cm = confusion_matrix(all_labels, pred_classes)
+        class_names = ["Real", "Face2Face", "FaceSwap", "FaceShifter", "NeuralTextures"]
+        cm_plot = go.Figure(data=go.Heatmap(
+            z=cm, 
+            x=class_names,
+            y=class_names,
+            colorscale="Viridis"
+        ))
         cm_plot.update_layout(
-            title="Confusion Matrix", xaxis_title="Predicted", yaxis_title="Actual"
+            title="Confusion Matrix", 
+            xaxis_title="Predicted", 
+            yaxis_title="Actual"
         )
 
-        # ROC Curve
-        fpr, tpr, _ = roc_curve(all_labels, all_preds)
-        roc_plot = go.Figure(data=go.Scatter(x=fpr, y=tpr, mode="lines"))
-        roc_plot.add_shape(type="line", line=dict(dash="dash"), x0=0, x1=1, y0=0, y1=1)
-        roc_plot.update_layout(
-            title="ROC Curve",
-            xaxis_title="False Positive Rate",
-            yaxis_title="True Positive Rate",
-        )
-
-        # Prediction Distribution
-        pred_dist_plot = go.Figure(
-            data=[
-                go.Histogram(
-                    x=np.array(all_preds)[np.array(all_labels) == 0], name="Real"
-                ),
-                go.Histogram(
-                    x=np.array(all_preds)[np.array(all_labels) == 1],
-                    name="Fake (Face2Face)",
-                ),
-                go.Histogram(
-                    x=np.array(all_preds)[np.array(all_labels) == 2],
-                    name="Fake (FaceSwap)",
-                ),
-                go.Histogram(
-                    x=np.array(all_preds)[np.array(all_labels) == 3],
-                    name="Fake (FaceShifter)",
-                ),
-                go.Histogram(
-                    x=np.array(all_preds)[np.array(all_labels) == 4],
-                    name="Fake (NeuralTextures)",
-                ),
-            ]
-        )
-        pred_dist_plot.update_layout(
-            title="Prediction Distribution",
-            xaxis_title="Prediction Score",
-            yaxis_title="Count",
-        )
-
-        return {
-            "confusion_matrix": cm_plot,
-            "roc_curve": roc_plot,
-            "prediction_distribution": pred_dist_plot,
-        }
+        # Create plots for each class
+        plots = {"confusion_matrix": cm_plot}
+        
+        # Create prediction distribution plots
+        try:
+            # For each class, create a histogram of predicted probabilities
+            dist_fig = go.Figure()
+            for i, class_name in enumerate(class_names):
+                # Get predictions for examples that truly belong to this class
+                class_mask = (all_labels == i)
+                if np.any(class_mask):  # Only add trace if we have examples
+                    dist_fig.add_trace(go.Histogram(
+                        x=all_preds[class_mask, i],
+                        name=f'True {class_name}',
+                        opacity=0.7,
+                        histnorm='probability'
+                    ))
+            
+            dist_fig.update_layout(
+                title="Prediction Score Distribution by Class",
+                xaxis_title="Prediction Score",
+                yaxis_title="Probability",
+                barmode='overlay'
+            )
+            plots["prediction_distribution"] = dist_fig
+            
+        except Exception as e:
+            logger.warning(f"Error creating prediction distribution plots: {str(e)}")
+        
+        return plots
 
 
 class ModelEvaluation:
@@ -288,15 +315,37 @@ class ModelEvaluation:
 
     def load_model(self):
         """
-        Loads the model from the given model path.
-
-        Args:
-            None
+        Loads the model from the given model path with safeguards for PyTorch 2.6+.
+        
+        This method attempts to load the model first with weights_only=False.
+        If that fails, it tries using safe_globals to add the model class.
 
         Returns:
             nn.Module: The loaded model.
         """
-        model = torch.load(self.config.model_path, map_location=self.device)
+        try:
+            # Try loading with weights_only=False first (less secure but backward compatible)
+            model = torch.load(self.config.model_path, map_location=self.device, weights_only=False)
+            logger.info("Model loaded successfully with weights_only=False.")
+        except Exception as e:
+            logger.warning(f"Failed to load model with weights_only=False: {str(e)}")
+            
+            try:
+                # Try using safe_globals for a more secure approach
+                # First import the model class
+                from DeepfakeDetection.components.model_training import ResNextLSTMModel
+                
+                # Add it to safe globals
+                torch.serialization.add_safe_globals([ResNextLSTMModel])
+                
+                # Now try loading with weights_only=True (more secure)
+                model = torch.load(self.config.model_path, map_location=self.device, weights_only=True)
+                logger.info("Model loaded successfully with safe_globals.")
+            except Exception as nested_e:
+                logger.error(f"Failed to load model with safe_globals: {str(nested_e)}")
+                # If all attempts fail, raise a comprehensive error
+                raise RuntimeError(f"Could not load model from {self.config.model_path}. Original error: {str(e)}")
+        
         model.eval()
         return model
 
@@ -314,37 +363,42 @@ class ModelEvaluation:
         video_paths = []
         labels = []
 
-        original_path = os.path.join(data_path, "original")
-        for video in os.listdir(original_path):
-            if video.endswith(".mp4"):
-                video_paths.append(os.path.join(original_path, video))
-                labels.append(0)  # 0 for real
+        # Dictionary mapping folder names to class indices
+        class_folders = {
+            "original": 0,         # Real videos
+            "Face2Face": 1,        # Face2Face deepfake
+            "FaceSwap": 2,         # FaceSwap deepfake
+            "FaceShifter": 3,      # FaceShifter deepfake
+            "NeuralTextures": 4    # NeuralTextures deepfake
+        }
 
-        face2face_path = os.path.join(data_path, "Face2Face")
-        for video in os.listdir(face2face_path):
-            if video.endswith(".mp4"):
-                video_paths.append(os.path.join(face2face_path, video))
-                labels.append(1)
-        # 1 for Face2Face
-        faceswap_path = os.path.join(data_path, "FaceSwap")
-        for video in os.listdir(faceswap_path):
-            if video.endswith(".mp4"):
-                video_paths.append(os.path.join(faceswap_path, video))
-                labels.append(2)
-        # 2 for FaceSwap
-        faceshifter_path = os.path.join(data_path, "FaceShifter")
-        for video in os.listdir(faceshifter_path):
-            if video.endswith(".mp4"):
-                video_paths.append(os.path.join(faceshifter_path, video))
-                labels.append(3)
-        # 3 for FaceShifter
-        neuraltextures_path = os.path.join(data_path, "NeuralTextures")
-        for video in os.listdir(neuraltextures_path):
-            if video.endswith(".mp4"):
-                video_paths.append(os.path.join(neuraltextures_path, video))
-                labels.append(4)
-        # 4 for NeuralTextures
+        for folder, label in class_folders.items():
+            folder_path = os.path.join(data_path, folder)
+            
+            # Check if the folder exists
+            if not os.path.exists(folder_path):
+                logger.warning(f"Folder not found: {folder_path}")
+                continue
+                
+            try:
+                for video in os.listdir(folder_path):
+                    if video.endswith(".mp4"):
+                        video_path = os.path.join(folder_path, video)
+                        # Verify the file exists and is accessible
+                        if os.path.isfile(video_path) and os.access(video_path, os.R_OK):
+                            video_paths.append(video_path)
+                            labels.append(label)
+                        else:
+                            logger.warning(f"Video file not accessible: {video_path}")
+            except Exception as e:
+                logger.error(f"Error loading videos from {folder_path}: {str(e)}")
 
+        logger.info(f"Loaded {len(video_paths)} videos across {len(class_folders)} classes")
+        
+        # Check if any videos were found
+        if len(video_paths) == 0:
+            raise ValueError(f"No video files found in {data_path}")
+            
         return video_paths, labels
 
     def prepare_data(self):
@@ -370,17 +424,26 @@ class ModelEvaluation:
         )
 
         test_videos, test_labels = self.load_video_paths(self.config.data_path)
+        
+        # Safety check to avoid empty dataset
+        if len(test_videos) == 0 or len(test_labels) == 0:
+            raise ValueError("No test videos or labels were loaded")
+            
         test_dataset = VideoDataset(
             test_videos,
             test_labels,
             sequence_length=self.config.sequence_length,
             transform=transform,
         )
+        
+        # Use a more conservative number of workers if needed
+        workers = min(self.config.num_workers, 4, os.cpu_count() or 1)
+        
         self.test_loader = DataLoader(
             test_dataset,
             batch_size=self.config.batch_size,
             shuffle=False,
-            num_workers=self.config.num_workers,
+            num_workers=workers,
         )
 
     def evaluate_model(self):
@@ -392,35 +455,39 @@ class ModelEvaluation:
         are logged to the console, and the model is saved to the given score path.
         The plots are saved to the given plots path.
 
-        Attributes:
-            test_loader (DataLoader): DataLoader for testing.
-            evaluation_strategy (EvaluationStrategy): Strategy for evaluating the model.
-            device (torch.device): Device to be used for evaluation.
-
         Returns:
             dict: A dictionary containing the evaluation metrics.
         """
-        model = self.load_model()
-        criterion = nn.CrossEntropyLoss()
+        try:
+            model = self.load_model()
+            criterion = nn.CrossEntropyLoss()
 
-        metrics, plots = self.evaluation_strategy.evaluate(
-            model, self.test_loader, criterion, self.device
-        )
+            metrics, plots = self.evaluation_strategy.evaluate(
+                model, self.test_loader, criterion, self.device
+            )
 
-        logger.info(f"Evaluation metrics: {metrics}")
+            logger.info(f"Evaluation metrics: {metrics}")
 
-        save_json(Path(self.config.score), metrics)
-        logger.info(f"Evaluation metrics saved to {self.config.score}")
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(self.config.score), exist_ok=True)
+            
+            save_json(Path(self.config.score), metrics)
+            logger.info(f"Evaluation metrics saved to {self.config.score}")
 
-        self.save_plots(plots)
+            self.save_plots(plots)
 
-        # log metrics to mlflow
-        if mlflow.active_run():
-            for metric_name, metric_value in metrics.items():
-                mlflow.log_metric(metric_name, metric_value)
-            mlflow.log_artifact(str(Path(self.config.score)))
+            # Log metrics to mlflow
+            if mlflow.active_run():
+                for metric_name, metric_value in metrics.items():
+                    if isinstance(metric_value, (int, float)):
+                        mlflow.log_metric(metric_name, metric_value)
+                mlflow.log_artifact(str(Path(self.config.score)))
 
-        return metrics
+            return metrics
+            
+        except Exception as e:
+            logger.error(f"Error in evaluate_model: {str(e)}")
+            raise
 
     def save_plots(self, plots):
         """
@@ -433,11 +500,15 @@ class ModelEvaluation:
         os.makedirs(plots_dir, exist_ok=True)
 
         for plot_name, plot_figure in plots.items():
-            plot_path = os.path.join(plots_dir, f"{plot_name}.html")
-            pio.write_html(plot_figure, file=plot_path)
-            logger.info(f"Plot saved: {plot_path}")
-            if mlflow.active_run():
-                mlflow.log_artifact(plot_path)
+            try:
+                plot_path = os.path.join(plots_dir, f"{plot_name}.html")
+                pio.write_html(plot_figure, file=plot_path)
+                logger.info(f"Plot saved: {plot_path}")
+                
+                if mlflow.active_run():
+                    mlflow.log_artifact(plot_path)
+            except Exception as e:
+                logger.warning(f"Failed to save plot {plot_name}: {str(e)}")
 
     def execute(self):
         """
@@ -454,6 +525,7 @@ class ModelEvaluation:
             self.prepare_data()
             metrics = self.evaluate_model()
             logger.info(f"Model evaluation completed with metrics: {metrics}")
+            return metrics
         except Exception as e:
             logger.error(f"Error during model evaluation: {str(e)}")
             raise

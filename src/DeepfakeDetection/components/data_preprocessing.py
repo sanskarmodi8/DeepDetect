@@ -2,7 +2,6 @@ import os
 from abc import ABC, abstractmethod
 
 import cv2
-import face_recognition
 
 import mediapipe as mp
 from typing import List, Tuple
@@ -62,18 +61,6 @@ class OpenCVFrameExtraction(FrameExtractionStrategy):
             yield image
             success, image = vidobj.read()
 
-class FaceRecognitionStrategy(FaceDetectionStrategy):
-     def detect_faces(self, frames):
-         """
-         Detect faces in a list of frames.
- 
-         Args:
-             frames (list): A list of numpy arrays, where each array is a frame from a video.
- 
-         Returns:
-             A list of lists of face bounding boxes, where each inner list is a list of bounding boxes for a frame.
-         """
-         return face_recognition.batch_face_locations(frames)
 
 class MediaPipeStrategy:
     def __init__(self, min_detection_confidence=0.6, model_selection=0):

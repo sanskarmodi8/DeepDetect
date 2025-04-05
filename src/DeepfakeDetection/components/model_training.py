@@ -490,6 +490,7 @@ class ModelTraining:
     def train(self):
         """
         Train the model using the training strategy and the given data.
+        If a model already exists at the specified path, skip training and just log the model to MLflow.
 
         Args:
             None
@@ -498,17 +499,64 @@ class ModelTraining:
             None
 
         Steps:
-        1. Create the model using the model strategy.
-        2. Create the weighted loss criterion.
-        3. Create the AdamW optimizer with weight decay.
-        4. Create the cosine annealing learning rate scheduler.
-        5. Train the model using the training strategy.
-        6. Validate the model using the validation strategy.
-        7. Save the model if the validation accuracy is improved.
-        8. Log the training and validation metrics.
-        9. Log the model with a valid signature to MLflow.
+        1. Check if model already exists at the specified path.
+        2. If model exists, load it and log it to MLflow.
+        3. If model doesn't exist, proceed with normal training:
+        a. Create the model using the model strategy.
+        b. Create the weighted loss criterion.
+        c. Create the AdamW optimizer with weight decay.
+        d. Create the cosine annealing learning rate scheduler.
+        e. Train the model using the training strategy.
+        f. Validate the model using the validation strategy.
+        g. Save the model if the validation accuracy is improved.
+        h. Log the training and validation metrics.
+        i. Log the model with a valid signature to MLflow.
         """
+        
+        # Check if model already exists
+        if os.path.exists(self.config.model_path):
+            logger.info(f"Model already exists at {self.config.model_path}. Skipping training.")
+            
+            # Load the existing model
+            model = torch.load(self.config.model_path, weights_only=False)
+            model.to(self.device)
+            
+            # Prepare input example for model signature
+            if not hasattr(self, 'train_loader'):
+                self.prepare_data()
+                
+            input_batch = next(iter(self.train_loader))
+            input_tensor = input_batch[0][:1].to(self.device)
 
+            with torch.no_grad():
+                output_tuple = model(input_tensor)
+                model_output = output_tuple[2]
+
+            model_signature = mlflow.models.infer_signature(
+                input_tensor.cpu().numpy(),
+                model_output.detach().cpu().numpy()
+            )
+            
+            # Log the existing model to MLflow
+            if mlflow.active_run():
+                mlflow.log_param("learning_rate", self.config.learning_rate)
+                mlflow.log_param("weight_decay", self.config.weight_decay)
+                mlflow.log_param("epochs", self.config.epochs)
+                mlflow.log_param("sequence_length", self.config.sequence_length)
+                mlflow.log_param("pre_existing_model", True)
+
+                mlflow.pytorch.log_model(
+                    model,
+                    "model",
+                    signature=model_signature,
+                )
+                
+            logger.info("Pre-existing model logged to MLflow.")
+            return
+        
+        # If model doesn't exist, proceed with normal training
+        logger.info("No existing model found. Proceeding with training.")
+        
         model = self.model_strategy.build_model(self.config).to(self.device)
         class_weights = self.get_class_weights(np.array(self.train_labels))
         criterion = nn.CrossEntropyLoss(
@@ -548,7 +596,6 @@ class ModelTraining:
                 logger.info("Model saved!")
 
         if mlflow.active_run():
-
             # Log metrics
             mlflow.log_metric("train_loss", train_loss)
             mlflow.log_metric("train_acc", train_acc)
@@ -563,12 +610,18 @@ class ModelTraining:
             mlflow.log_param("weight_decay", self.config.weight_decay)
             mlflow.log_param("epochs", self.config.epochs)
             mlflow.log_param("sequence_length", self.config.sequence_length)
+            mlflow.log_param("pre_existing_model", False)
 
-            input_batch = next(iter(self.train_loader))[0]
-            input_example = input_batch[:1].to(self.device)
-            _,_, model_output = model(input_example)
+            input_batch = next(iter(self.train_loader))
+            input_tensor = input_batch[0][:1].to(self.device)
+
+            with torch.no_grad():
+                output_tuple = model(input_tensor)
+                model_output = output_tuple[2]
+
             model_signature = mlflow.models.infer_signature(
-                input_example.cpu().numpy(), model_output.detach().cpu().numpy()
+                input_tensor.cpu().numpy(),
+                model_output.detach().cpu().numpy()
             )
 
             # Log model with signature
@@ -576,7 +629,6 @@ class ModelTraining:
                 model,
                 "model",
                 signature=model_signature,
-                input_example=input_example.cpu().numpy(),
             )
 
         logger.info("Training completed!")

@@ -15,28 +15,26 @@ In the age of deepfakes, seeing is no longer believing. But even if you can't tr
 
 ## ⚠️ Important Notice
 
-**Please Note**: Due to limited computational resources, this model is currently trained on a relatively small dataset with a short `sequence_length` of 10. As a result, its performance metrics are as follows:
-- Accuracy: ~76%
-- F1 Score: ~76%
-- AUC: ~85%
+**Please Note**: Due to limited computational resources, this model is currently trained on a relatively small dataset with a short `sequence_length` of 10. As a result, its performance metrics on testing dataset are as follows:
+- Accuracy: ~93%
+- F1 Score: ~93%
 
-While we are confident the results wil be promising after traning the model on a greater sequence length when we get access to additional computational resources, we strongly advise against using this project for serious or commercial applications in its current state. It serves best as a proof-of-concept and educational purposes.
 
 ## 🚀 Features
 
 - AI-powered deepfake detection
-- User-friendly Gradio interface
+- User-friendly Gradio interface along with FastAPI application
 - Comprehensive ML pipeline with MLflow and DVC
 
 ## 🛠️ Tech Stack
 
 - **Data Manipulation**: NumPy, Pandas
 - **Model**: Scikit-learn, PyTorch
-- **Image and Video processing**: OpenCV, MTCNN, face_recognition
+- **Image and Video processing**: OpenCV, Mediapipe
 - **Visualization**: Plotly
 - **MLOps**: MLflow, DVC
-- **UI**: Gradio
-- **Deployment**: HuggingFace Spaces
+- **UI**: Gradio and FastAPI
+- **Deployment**: Azure Portal
 
 ## 🏗️ Project Structure
 
@@ -111,13 +109,6 @@ If you intend to use MLFLOW then you have to save ytour MLFLOW credentials in .e
 ```bash
 python app.py
 ```
-
-## 🔮 Future Goals
-
-- [ ] Use Attention weights along with Feature maps in Grad-CAM for enhanced explainability
-- [ ] Use MTCNN in Preprocessing component instead of face_recognition
-- [ ] Scale up training with larger datasets and sequence lengths
-- [ ] Add user-configurable sequence length in the application
 
 ## 🤝 Contributing
 

@@ -1,17 +1,13 @@
 # Core Libraries for Machine Learning and image/video processing
 torch
 torchvision
-transformers
 numpy
 scikit-learn
 pandas
 opencv-python
 pillow
 tensorflow
-facenet_pytorch
 mediapipe
-mtcnn
-face_recognition
 dlib
 
 # Machine Learning Workflow, pipelines, Model Management, env, and Configuration
@@ -22,6 +18,8 @@ python-dotenv
 
 # User Interface
 gradio
+fastapi
+uvicorn
 
 # Code Formatting
 black
