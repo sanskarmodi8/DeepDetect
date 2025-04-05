@@ -6,8 +6,8 @@ import mlflow
 import numpy as np
 import torch
 import torch.nn.functional as F
-from PIL import Image
 from dotenv import load_dotenv
+from PIL import Image
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.utils.class_weight import compute_class_weight
 from torch import nn
@@ -61,12 +61,14 @@ class VideoDataset(Dataset):
 
         frames = []
         cap = cv2.VideoCapture(video_path)
-        
+
         # Check if video opened successfully
         if not cap.isOpened():
             logger.warning(f"Could not open video file: {video_path}")
             # Create a default frame with zeros - use numpy array to match cv2 output format
-            dummy_frame = np.zeros((224, 224, 3), dtype=np.uint8)  # Using numpy array format
+            dummy_frame = np.zeros(
+                (224, 224, 3), dtype=np.uint8
+            )  # Using numpy array format
             if self.transform:
                 dummy_frame = self.transform(dummy_frame)
             frames = [dummy_frame] * self.sequence_length
@@ -92,7 +94,9 @@ class VideoDataset(Dataset):
         # If we don't have enough frames, pad with zeros
         if len(frames) == 0:
             # No frames were read, create a default frame as numpy array
-            dummy_frame = np.zeros((224, 224, 3), dtype=np.uint8)  # CV2 returns numpy arrays
+            dummy_frame = np.zeros(
+                (224, 224, 3), dtype=np.uint8
+            )  # CV2 returns numpy arrays
             if self.transform:
                 dummy_frame = self.transform(dummy_frame)
             frames = [dummy_frame] * self.sequence_length
@@ -102,6 +106,7 @@ class VideoDataset(Dataset):
             frames.extend([last_frame] * (self.sequence_length - len(frames)))
 
         return torch.stack(frames), torch.tensor(label, dtype=torch.long)
+
 
 class ResNextLSTMModel(nn.Module):
     def __init__(
@@ -271,7 +276,7 @@ class StandardTrainingStrategy(TrainingStrategy):
             inputs, labels = inputs.to(device), labels.to(device)
 
             with autocast():
-                _,_, outputs = model(inputs)
+                _, _, outputs = model(inputs)
                 loss = criterion(outputs, labels)
 
             scaler.scale(loss).backward()
@@ -316,7 +321,7 @@ class StandardTrainingStrategy(TrainingStrategy):
             for inputs, labels in tqdm(dataloader, desc="Validating"):
                 inputs, labels = inputs.to(device), labels.to(device)
 
-                _,_, outputs = model(inputs)
+                _, _, outputs = model(inputs)
                 loss = criterion(outputs, labels)
 
                 running_loss += loss.item()
@@ -512,19 +517,21 @@ class ModelTraining:
         h. Log the training and validation metrics.
         i. Log the model with a valid signature to MLflow.
         """
-        
+
         # Check if model already exists
         if os.path.exists(self.config.model_path):
-            logger.info(f"Model already exists at {self.config.model_path}. Skipping training.")
-            
+            logger.info(
+                f"Model already exists at {self.config.model_path}. Skipping training."
+            )
+
             # Load the existing model
             model = torch.load(self.config.model_path, weights_only=False)
             model.to(self.device)
-            
+
             # Prepare input example for model signature
-            if not hasattr(self, 'train_loader'):
+            if not hasattr(self, "train_loader"):
                 self.prepare_data()
-                
+
             input_batch = next(iter(self.train_loader))
             input_tensor = input_batch[0][:1].to(self.device)
 
@@ -533,10 +540,9 @@ class ModelTraining:
                 model_output = output_tuple[2]
 
             model_signature = mlflow.models.infer_signature(
-                input_tensor.cpu().numpy(),
-                model_output.detach().cpu().numpy()
+                input_tensor.cpu().numpy(), model_output.detach().cpu().numpy()
             )
-            
+
             # Log the existing model to MLflow
             if mlflow.active_run():
                 mlflow.log_param("learning_rate", self.config.learning_rate)
@@ -550,13 +556,13 @@ class ModelTraining:
                     "model",
                     signature=model_signature,
                 )
-                
+
             logger.info("Pre-existing model logged to MLflow.")
             return
-        
+
         # If model doesn't exist, proceed with normal training
         logger.info("No existing model found. Proceeding with training.")
-        
+
         model = self.model_strategy.build_model(self.config).to(self.device)
         class_weights = self.get_class_weights(np.array(self.train_labels))
         criterion = nn.CrossEntropyLoss(
@@ -620,8 +626,7 @@ class ModelTraining:
                 model_output = output_tuple[2]
 
             model_signature = mlflow.models.infer_signature(
-                input_tensor.cpu().numpy(),
-                model_output.detach().cpu().numpy()
+                input_tensor.cpu().numpy(), model_output.detach().cpu().numpy()
             )
 
             # Log model with signature

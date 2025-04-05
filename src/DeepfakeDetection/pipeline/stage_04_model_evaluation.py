@@ -1,8 +1,10 @@
+import multiprocessing
+from multiprocessing import freeze_support
+
 from DeepfakeDetection import logger
 from DeepfakeDetection.components.model_evaluation import ModelEvaluation
 from DeepfakeDetection.config.configuration import ConfigurationManager
-import multiprocessing
-from multiprocessing import freeze_support
+
 
 class ModelEvaluationPipeline:
     def __init__(self):

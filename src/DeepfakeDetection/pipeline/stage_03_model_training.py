@@ -1,8 +1,10 @@
+import multiprocessing
+from multiprocessing import freeze_support
+
 from DeepfakeDetection import logger
 from DeepfakeDetection.components.model_training import ModelTraining
 from DeepfakeDetection.config.configuration import ConfigurationManager
-import multiprocessing
-from multiprocessing import freeze_support
+
 STAGE_NAME = "Model Training stage"
 
 
@@ -19,6 +21,7 @@ class ModelTrainingPipeline:
         model_training = ModelTraining(model_training_config)
         # model_training.initialize_mlflow()  # Initialize mlflow logging
         model_training.execute()
+
 
 if __name__ == "__main__":
     try:

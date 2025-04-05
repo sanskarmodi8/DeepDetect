@@ -1,10 +1,9 @@
 import os
 from abc import ABC, abstractmethod
+from typing import List, Tuple
 
 import cv2
-
 import mediapipe as mp
-from typing import List, Tuple
 import numpy as np
 from sklearn.model_selection import StratifiedShuffleSplit
 from tqdm import tqdm
@@ -68,7 +67,7 @@ class MediaPipeStrategy:
         self.model_selection = model_selection
         self.face_detection = mp.solutions.face_detection.FaceDetection(
             model_selection=self.model_selection,
-            min_detection_confidence=self.min_detection_confidence
+            min_detection_confidence=self.min_detection_confidence,
         )
 
     def _get_box(self, detection, image_shape):
@@ -88,7 +87,9 @@ class MediaPipeStrategy:
 
         return (top, right, bottom, left)
 
-    def detect_faces(self, images: List[np.ndarray]) -> List[List[Tuple[int, int, int, int]]]:
+    def detect_faces(
+        self, images: List[np.ndarray]
+    ) -> List[List[Tuple[int, int, int, int]]]:
         all_faces = []
 
         for img in images:

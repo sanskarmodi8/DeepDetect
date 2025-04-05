@@ -1,12 +1,13 @@
-import uvicorn
-import numpy as np
-import cv2
 import tempfile
-from fastapi import FastAPI, File, UploadFile, Form, Query
-from fastapi.responses import JSONResponse, StreamingResponse
-from starlette.middleware.cors import CORSMiddleware
 from io import BytesIO
 from typing import Optional
+
+import cv2
+import numpy as np
+import uvicorn
+from fastapi import FastAPI, File, Form, Query, UploadFile
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.middleware.cors import CORSMiddleware
 
 from src.DeepfakeDetection.pipeline.prediction import Prediction
 
@@ -27,10 +28,13 @@ app.add_middleware(
 # Initialize model
 predictor = Prediction()
 
+
 @app.post("/predict/")
 async def predict_deepfake(
     video: UploadFile = File(...),
-    sequence_length: Optional[int] = Query(None, description="Number of frames to use for prediction")
+    sequence_length: Optional[int] = Query(
+        None, description="Number of frames to use for prediction"
+    ),
 ):
     try:
         # Save video to a temporary file
@@ -39,12 +43,11 @@ async def predict_deepfake(
             temp_video_path = temp_video.name
 
         # Get prediction and explanation image
-        prediction_str, explanation_image, details = predictor.predict(temp_video_path, sequence_length)
+        prediction_str, explanation_image, details = predictor.predict(
+            temp_video_path, sequence_length
+        )
 
-        response = {
-            "prediction": prediction_str,
-            "details": details
-        }
+        response = {"prediction": prediction_str, "details": details}
 
         # Convert explanation image (np array) to JPEG bytes if available
         if explanation_image is not None:
@@ -60,18 +63,16 @@ async def predict_deepfake(
 
     except Exception as e:
         import traceback
+
         error_detail = traceback.format_exc()
         return JSONResponse(
-            status_code=500, 
-            content={
-                "error": str(e),
-                "detail": error_detail
-            }
+            status_code=500, content={"error": str(e), "detail": error_detail}
         )
+
 
 @app.get("/")
 def root():
     return {
         "message": "Deepfake Detection API is running!",
-        "usage": "POST to /predict/ with a video file and optional sequence_length parameter"
+        "usage": "POST to /predict/ with a video file and optional sequence_length parameter",
     }

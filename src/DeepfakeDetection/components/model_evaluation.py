@@ -64,12 +64,14 @@ class VideoDataset(Dataset):
 
         frames = []
         cap = cv2.VideoCapture(video_path)
-        
+
         # Check if video opened successfully
         if not cap.isOpened():
             logger.warning(f"Could not open video file: {video_path}")
             # Create a default frame with zeros - use numpy array to match cv2 output format
-            dummy_frame = np.zeros((224, 224, 3), dtype=np.uint8)  # Using numpy array format
+            dummy_frame = np.zeros(
+                (224, 224, 3), dtype=np.uint8
+            )  # Using numpy array format
             if self.transform:
                 dummy_frame = self.transform(dummy_frame)
             frames = [dummy_frame] * self.sequence_length
@@ -95,7 +97,9 @@ class VideoDataset(Dataset):
         # If we don't have enough frames, pad with zeros
         if len(frames) == 0:
             # No frames were read, create a default frame as numpy array
-            dummy_frame = np.zeros((224, 224, 3), dtype=np.uint8)  # CV2 returns numpy arrays
+            dummy_frame = np.zeros(
+                (224, 224, 3), dtype=np.uint8
+            )  # CV2 returns numpy arrays
             if self.transform:
                 dummy_frame = self.transform(dummy_frame)
             frames = [dummy_frame] * self.sequence_length
@@ -172,14 +176,14 @@ class ResNextLSTMEvaluationStrategy(EvaluationStrategy):
                 # Store full output probabilities
                 all_preds.append(outputs.cpu().numpy())
                 all_labels.extend(labels.cpu().numpy())
-                
+
                 # Get predicted class for confusion matrix
                 _, predicted = torch.max(outputs, 1)
                 pred_classes.extend(predicted.cpu().numpy())
 
         # Concatenate all predictions if there are multiple batches
         all_preds = np.vstack(all_preds) if len(all_preds) > 0 else np.array([])
-        
+
         epoch_loss = running_loss / len(dataloader)
         metrics = self.calculate_metrics(all_labels, all_preds, pred_classes)
         metrics["loss"] = epoch_loss
@@ -203,12 +207,16 @@ class ResNextLSTMEvaluationStrategy(EvaluationStrategy):
         # Convert to numpy arrays if not already
         all_labels = np.array(all_labels)
         pred_classes = np.array(pred_classes)
-        
+
         accuracy = accuracy_score(all_labels, pred_classes)
-        
+
         try:
-            precision = precision_score(all_labels, pred_classes, average="weighted", zero_division=0)
-            recall = recall_score(all_labels, pred_classes, average="weighted", zero_division=0)
+            precision = precision_score(
+                all_labels, pred_classes, average="weighted", zero_division=0
+            )
+            recall = recall_score(
+                all_labels, pred_classes, average="weighted", zero_division=0
+            )
             f1 = f1_score(all_labels, pred_classes, average="weighted", zero_division=0)
         except Exception as e:
             logger.warning(f"Error calculating precision/recall/f1: {str(e)}")
@@ -236,51 +244,48 @@ class ResNextLSTMEvaluationStrategy(EvaluationStrategy):
         # Convert to numpy arrays for easier handling
         all_labels = np.array(all_labels)
         pred_classes = np.array(pred_classes)
-        
+
         # Create confusion matrix
         cm = confusion_matrix(all_labels, pred_classes)
         class_names = ["Real", "Face2Face", "FaceSwap", "FaceShifter", "NeuralTextures"]
-        cm_plot = go.Figure(data=go.Heatmap(
-            z=cm, 
-            x=class_names,
-            y=class_names,
-            colorscale="Viridis"
-        ))
+        cm_plot = go.Figure(
+            data=go.Heatmap(z=cm, x=class_names, y=class_names, colorscale="Viridis")
+        )
         cm_plot.update_layout(
-            title="Confusion Matrix", 
-            xaxis_title="Predicted", 
-            yaxis_title="Actual"
+            title="Confusion Matrix", xaxis_title="Predicted", yaxis_title="Actual"
         )
 
         # Create plots for each class
         plots = {"confusion_matrix": cm_plot}
-        
+
         # Create prediction distribution plots
         try:
             # For each class, create a histogram of predicted probabilities
             dist_fig = go.Figure()
             for i, class_name in enumerate(class_names):
                 # Get predictions for examples that truly belong to this class
-                class_mask = (all_labels == i)
+                class_mask = all_labels == i
                 if np.any(class_mask):  # Only add trace if we have examples
-                    dist_fig.add_trace(go.Histogram(
-                        x=all_preds[class_mask, i],
-                        name=f'True {class_name}',
-                        opacity=0.7,
-                        histnorm='probability'
-                    ))
-            
+                    dist_fig.add_trace(
+                        go.Histogram(
+                            x=all_preds[class_mask, i],
+                            name=f"True {class_name}",
+                            opacity=0.7,
+                            histnorm="probability",
+                        )
+                    )
+
             dist_fig.update_layout(
                 title="Prediction Score Distribution by Class",
                 xaxis_title="Prediction Score",
                 yaxis_title="Probability",
-                barmode='overlay'
+                barmode="overlay",
             )
             plots["prediction_distribution"] = dist_fig
-            
+
         except Exception as e:
             logger.warning(f"Error creating prediction distribution plots: {str(e)}")
-        
+
         return plots
 
 
@@ -316,7 +321,7 @@ class ModelEvaluation:
     def load_model(self):
         """
         Loads the model from the given model path with safeguards for PyTorch 2.6+.
-        
+
         This method attempts to load the model first with weights_only=False.
         If that fails, it tries using safe_globals to add the model class.
 
@@ -325,27 +330,33 @@ class ModelEvaluation:
         """
         try:
             # Try loading with weights_only=False first (less secure but backward compatible)
-            model = torch.load(self.config.model_path, map_location=self.device, weights_only=False)
+            model = torch.load(
+                self.config.model_path, map_location=self.device, weights_only=False
+            )
             logger.info("Model loaded successfully with weights_only=False.")
         except Exception as e:
             logger.warning(f"Failed to load model with weights_only=False: {str(e)}")
-            
+
             try:
                 # Try using safe_globals for a more secure approach
                 # First import the model class
                 from DeepfakeDetection.components.model_training import ResNextLSTMModel
-                
+
                 # Add it to safe globals
                 torch.serialization.add_safe_globals([ResNextLSTMModel])
-                
+
                 # Now try loading with weights_only=True (more secure)
-                model = torch.load(self.config.model_path, map_location=self.device, weights_only=True)
+                model = torch.load(
+                    self.config.model_path, map_location=self.device, weights_only=True
+                )
                 logger.info("Model loaded successfully with safe_globals.")
             except Exception as nested_e:
                 logger.error(f"Failed to load model with safe_globals: {str(nested_e)}")
                 # If all attempts fail, raise a comprehensive error
-                raise RuntimeError(f"Could not load model from {self.config.model_path}. Original error: {str(e)}")
-        
+                raise RuntimeError(
+                    f"Could not load model from {self.config.model_path}. Original error: {str(e)}"
+                )
+
         model.eval()
         return model
 
@@ -365,27 +376,29 @@ class ModelEvaluation:
 
         # Dictionary mapping folder names to class indices
         class_folders = {
-            "original": 0,         # Real videos
-            "Face2Face": 1,        # Face2Face deepfake
-            "FaceSwap": 2,         # FaceSwap deepfake
-            "FaceShifter": 3,      # FaceShifter deepfake
-            "NeuralTextures": 4    # NeuralTextures deepfake
+            "original": 0,  # Real videos
+            "Face2Face": 1,  # Face2Face deepfake
+            "FaceSwap": 2,  # FaceSwap deepfake
+            "FaceShifter": 3,  # FaceShifter deepfake
+            "NeuralTextures": 4,  # NeuralTextures deepfake
         }
 
         for folder, label in class_folders.items():
             folder_path = os.path.join(data_path, folder)
-            
+
             # Check if the folder exists
             if not os.path.exists(folder_path):
                 logger.warning(f"Folder not found: {folder_path}")
                 continue
-                
+
             try:
                 for video in os.listdir(folder_path):
                     if video.endswith(".mp4"):
                         video_path = os.path.join(folder_path, video)
                         # Verify the file exists and is accessible
-                        if os.path.isfile(video_path) and os.access(video_path, os.R_OK):
+                        if os.path.isfile(video_path) and os.access(
+                            video_path, os.R_OK
+                        ):
                             video_paths.append(video_path)
                             labels.append(label)
                         else:
@@ -393,12 +406,14 @@ class ModelEvaluation:
             except Exception as e:
                 logger.error(f"Error loading videos from {folder_path}: {str(e)}")
 
-        logger.info(f"Loaded {len(video_paths)} videos across {len(class_folders)} classes")
-        
+        logger.info(
+            f"Loaded {len(video_paths)} videos across {len(class_folders)} classes"
+        )
+
         # Check if any videos were found
         if len(video_paths) == 0:
             raise ValueError(f"No video files found in {data_path}")
-            
+
         return video_paths, labels
 
     def prepare_data(self):
@@ -424,21 +439,21 @@ class ModelEvaluation:
         )
 
         test_videos, test_labels = self.load_video_paths(self.config.data_path)
-        
+
         # Safety check to avoid empty dataset
         if len(test_videos) == 0 or len(test_labels) == 0:
             raise ValueError("No test videos or labels were loaded")
-            
+
         test_dataset = VideoDataset(
             test_videos,
             test_labels,
             sequence_length=self.config.sequence_length,
             transform=transform,
         )
-        
+
         # Use a more conservative number of workers if needed
         workers = min(self.config.num_workers, 4, os.cpu_count() or 1)
-        
+
         self.test_loader = DataLoader(
             test_dataset,
             batch_size=self.config.batch_size,
@@ -470,7 +485,7 @@ class ModelEvaluation:
 
             # Ensure the directory exists
             os.makedirs(os.path.dirname(self.config.score), exist_ok=True)
-            
+
             save_json(Path(self.config.score), metrics)
             logger.info(f"Evaluation metrics saved to {self.config.score}")
 
@@ -484,7 +499,7 @@ class ModelEvaluation:
                 mlflow.log_artifact(str(Path(self.config.score)))
 
             return metrics
-            
+
         except Exception as e:
             logger.error(f"Error in evaluate_model: {str(e)}")
             raise
@@ -504,7 +519,7 @@ class ModelEvaluation:
                 plot_path = os.path.join(plots_dir, f"{plot_name}.html")
                 pio.write_html(plot_figure, file=plot_path)
                 logger.info(f"Plot saved: {plot_path}")
-                
+
                 if mlflow.active_run():
                     mlflow.log_artifact(plot_path)
             except Exception as e:

@@ -1,11 +1,12 @@
 import cv2
+import mediapipe as mp
+import mlflow
 import numpy as np
 import torch
 import torch.nn.functional as F
 from dotenv import load_dotenv
 from torchvision import transforms
-import mediapipe as mp
-import mlflow
+
 from DeepfakeDetection.constants import PARAMS_FILE_PATH
 from DeepfakeDetection.utils.common import read_yaml
 
@@ -18,7 +19,9 @@ class Prediction:
         Initialize the Prediction class with a pre-trained model and necessary parameters.
         """
         self.device = torch.device("cpu")
-        self.model = mlflow.pytorch.load_model('runs:/6199e90b978f48fc868c514f78539d41/model', map_location=self.device)
+        self.model = mlflow.pytorch.load_model(
+            "runs:/6199e90b978f48fc868c514f78539d41/model", map_location=self.device
+        )
 
         self.model.eval()
         params = read_yaml(PARAMS_FILE_PATH)
@@ -28,12 +31,17 @@ class Prediction:
 
         # Initialize MediaPipe face detector
         self.face_detection = mp.solutions.face_detection.FaceDetection(
-            model_selection=0,
-            min_detection_confidence=0.6
+            model_selection=0, min_detection_confidence=0.6
         )
 
         # Define the classes for prediction
-        self.classes = ["original", "Deepfake (Face2Face)", "Deepfake (FaceShifter)", "Deepfake (FaceSwap)", "Deepfake (NeuralTextures)"]
+        self.classes = [
+            "original",
+            "Deepfake (Face2Face)",
+            "Deepfake (FaceShifter)",
+            "Deepfake (FaceSwap)",
+            "Deepfake (NeuralTextures)",
+        ]
 
     def get_frames(self, video):
         """
@@ -48,10 +56,10 @@ class Prediction:
     def get_face(self, frame):
         """
         Detect faces in a frame using MediaPipe.
-        
+
         Args:
             frame (np.ndarray): Input frame
-            
+
         Returns:
             tuple: (top, right, bottom, left) coordinates of the face or None if no face detected
         """
@@ -61,7 +69,7 @@ class Prediction:
 
             # Detect faces
             results = self.face_detection.process(rgb_frame)
-            
+
             if results.detections:
                 detection = results.detections[0]  # Use the first detected face
                 h, w, _ = frame.shape
@@ -78,9 +86,9 @@ class Prediction:
                 right = min(xmin + box_width, w)
                 bottom = min(ymin + box_height, h)
                 left = max(xmin, 0)
-                
+
                 return (top, right, bottom, left)
-            
+
             return None  # No face detected
 
         except Exception as e:
@@ -91,10 +99,10 @@ class Prediction:
     def color_jitter(self, image):
         """
         Applies color jitter to the given image for data augmentation.
-        
+
         Args:
             image (np.ndarray): The input image
-            
+
         Returns:
             np.ndarray: The color jittered image
         """
@@ -125,73 +133,91 @@ class Prediction:
         """
         Preprocess the video by extracting frames, detecting faces, and resizing.
         Applies same preprocessing as training pipeline.
-        
+
         Args:
             video (str): Path to the video file
             seq_length (int, optional): Number of frames to extract
-            
+
         Returns:
             list: List of preprocessed frames
         """
         frames = []
         raw_frames = []  # Store original cropped frames for visualization
-        
+
         # Use provided sequence length or default from params
-        target_seq_length = seq_length if seq_length is not None else self.default_frame_count
-        
-        transform = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize(
-                tuple(self.resolution),
-                interpolation=transforms.InterpolationMode.BILINEAR,
-            ),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-            ),
-        ])
+        target_seq_length = (
+            seq_length if seq_length is not None else self.default_frame_count
+        )
+
+        transform = transforms.Compose(
+            [
+                transforms.ToPILImage(),
+                transforms.Resize(
+                    tuple(self.resolution),
+                    interpolation=transforms.InterpolationMode.BILINEAR,
+                ),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                ),
+            ]
+        )
 
         buffer = []  # For processing in batches of 4 like training pipeline
-        
+
         for idx, frame in enumerate(self.get_frames(video)):
             if len(frames) < target_seq_length:
                 buffer.append(frame)
-                
+
                 if len(buffer) == 4:  # Process in batches of 4
                     faces = [self.get_face(f) for f in buffer]
-                    
+
                     for i, face in enumerate(faces):
                         if face is not None:
                             top, right, bottom, left = face
                             face_height = bottom - top
                             face_width = right - left
-                            
+
                             # Expand face region using expansion factor
-                            expanded_top = max(0, top - int(self.expansion_factor / 2 * face_height))
-                            expanded_bottom = min(buffer[i].shape[0], bottom + int(self.expansion_factor / 2 * face_height))
-                            expanded_left = max(0, left - int(self.expansion_factor / 2 * face_width))
-                            expanded_right = min(buffer[i].shape[1], right + int(self.expansion_factor / 2 * face_width))
-                            
+                            expanded_top = max(
+                                0, top - int(self.expansion_factor / 2 * face_height)
+                            )
+                            expanded_bottom = min(
+                                buffer[i].shape[0],
+                                bottom + int(self.expansion_factor / 2 * face_height),
+                            )
+                            expanded_left = max(
+                                0, left - int(self.expansion_factor / 2 * face_width)
+                            )
+                            expanded_right = min(
+                                buffer[i].shape[1],
+                                right + int(self.expansion_factor / 2 * face_width),
+                            )
+
                             # Crop and resize
                             cropped_face = cv2.resize(
-                                buffer[i][expanded_top:expanded_bottom, expanded_left:expanded_right, :],
-                                tuple(self.resolution)
+                                buffer[i][
+                                    expanded_top:expanded_bottom,
+                                    expanded_left:expanded_right,
+                                    :,
+                                ],
+                                tuple(self.resolution),
                             )
-                            
+
                             # Store original cropped face for visualization
                             raw_frames.append(cropped_face.copy())
-                            
+
                             # Apply color jitter like in training
                             cropped_face = self.color_jitter(cropped_face)
-                            
+
                             # Transform for model input
                             transformed = transform(cropped_face)
                             frames.append(transformed)
-                    
+
                     buffer = []  # Reset buffer
             else:
                 break
-                
+
         # Handle padding if we have fewer frames than required
         if len(frames) < target_seq_length:
             # If we have some frames, duplicate the last one
@@ -201,7 +227,7 @@ class Prediction:
                     raw_frames.append(raw_frames[-1])
             else:
                 return [], []  # No faces detected
-                
+
         return frames[:target_seq_length], raw_frames[:target_seq_length]
 
     def save_gradients(self, grad):
@@ -258,21 +284,23 @@ class Prediction:
     def predict(self, video, seq_length=None):
         """
         Predict whether a video is real or fake.
-        
+
         Args:
             video (str): Path to the video file
             seq_length (int, optional): Number of frames to use
-            
+
         Returns:
             tuple: (prediction_result, gradcam_image, classification_details)
         """
         frames, raw_frames = self.preprocess(video, seq_length)
-        
+
         if not frames:
             return "No faces detected in the video", None, None
 
         # Prepare input tensor for the model
-        target_seq_length = seq_length if seq_length is not None else self.default_frame_count
+        target_seq_length = (
+            seq_length if seq_length is not None else self.default_frame_count
+        )
         input_tensor = torch.stack(frames).unsqueeze(0)
         input_tensor = input_tensor.view(1, target_seq_length, 3, *self.resolution)
         input_tensor = input_tensor.to(self.device)
@@ -284,23 +312,37 @@ class Prediction:
 
         # Get predictions for all classes
         class_probs = F.softmax(output, dim=1).detach().cpu().numpy()[0]
-        
+
         # Get the predicted class
         predicted_class_idx = np.argmax(class_probs)
-        predicted_class = self.classes[predicted_class_idx] if predicted_class_idx < len(self.classes) else "Unknown"
+        predicted_class = (
+            self.classes[predicted_class_idx]
+            if predicted_class_idx < len(self.classes)
+            else "Unknown"
+        )
         prediction = "Deepfake" if predicted_class_idx > 0 else "Real"
-        confidence_class = class_probs[predicted_class_idx] * 100
-        confidence_deepfake_real = class_probs[1:].max() * 100 if prediction== "Deepfake" else class_probs[0] * 100
-        prediction_string = f"{prediction} : {confidence_deepfake_real}% Confidence"
+
+        # Format confidence values to 2 decimal places
+        confidence_class = round(class_probs[predicted_class_idx] * 100, 2)
+        confidence_deepfake_real = (
+            round(class_probs[1:].max() * 100, 2)
+            if prediction == "Deepfake"
+            else round(class_probs[0] * 100, 2)
+        )
+        prediction_string = f"{prediction} {confidence_deepfake_real:.2f}% Confidence"
 
         # Create detailed classification results
-        classification_details = {
-            "Deepfake type": predicted_class,
-            "confidence": confidence_class,
-        } if prediction == "Deepfake" else {
-            "Deepfake type": "None (Real video)",
-            "confidence": confidence_class,
-        }
+        classification_details = (
+            {
+                "Deepfake type": predicted_class,
+                "confidence(%)": f"{confidence_class:.2f}",
+            }
+            if prediction == "Deepfake"
+            else {
+                "Deepfake type": "None (Real video)",
+                "confidence(%)": f"{confidence_class:.2f}",
+            }
+        )
 
         # Backpropagate for Grad-CAM
         self.model.zero_grad()
@@ -311,9 +353,7 @@ class Prediction:
         if raw_frames:
             # Choose middle frame for visualization
             middle_idx = len(raw_frames) // 2
-            gradcam_image = self.generate_gradcam(
-                fmap, raw_frames[middle_idx], grads
-            )
+            gradcam_image = self.generate_gradcam(fmap, raw_frames[middle_idx], grads)
         else:
             gradcam_image = None
 
