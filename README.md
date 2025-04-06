@@ -1,3 +1,9 @@
+---
+title: DeepDetect
+app_file: gradio_app.py
+sdk: gradio
+sdk_version: 5.23.3
+---
 # Project DeepDetect
 
 <br/>
@@ -5,7 +11,7 @@
 In the age of deepfakes, seeing is no longer believing. But even if you can't trust your eyes, you can trust us.
 <br/>
 
-[DeepDetect]() is an AI Powered Application to help you see the reality.
+DeepDetect is an AI Powered Application to help you see the reality.
 <br/>
 
 <br/>
@@ -20,7 +26,7 @@ In the age of deepfakes, seeing is no longer believing. But even if you can't tr
 ## 🚀 Features
 
 - AI-powered deepfake detection
-- FastAPI application hosted on HF Spaces
+- FastAPI and Gradio application
 - Comprehensive ML pipeline with MLflow and DVC
 
 ## 🛠️ Tech Stack
@@ -30,8 +36,7 @@ In the age of deepfakes, seeing is no longer believing. But even if you can't tr
 - **Image and Video processing**: OpenCV, Mediapipe
 - **Visualization**: Plotly
 - **MLOps**: MLflow, DVC
-- **UI**: FastAPI
-- **Deployment**: HuggingFace Spaces
+- **UI**: FastAPI, Gradio
 
 ## 🏗️ Project Structure
 
@@ -48,7 +53,8 @@ DeepDetect/
 │       └── constants/              # Constant values used throughout the project
 │
 ├── config/                         # Global configuration files
-├── app.py                          # Main application file using Gradio
+├── gradio_app.py                   # Main application file using Gradio
+├── fastapi_app.py                  # Main application file using FastAPI
 ├── Dockerfile                      # Instructions for building a Docker container
 ├── requirements.txt                # Python dependencies for the project
 ├── pyproject.toml                  # Project metadata and build system requirements

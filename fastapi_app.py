@@ -76,3 +76,6 @@ def root():
         "message": "Deepfake Detection API is running!",
         "usage": "POST to /predict/ with a video file and optional sequence_length parameter",
     }
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

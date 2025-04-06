@@ -17,6 +17,7 @@ python-dotenv
 # User Interface
 fastapi
 uvicorn
+gradio
 
 # Code Formatting
 black
@@ -33,3 +34,4 @@ python-box
 tqdm
 ensure
 
+-e .
