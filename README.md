@@ -20,7 +20,7 @@ In the age of deepfakes, seeing is no longer believing. But even if you can't tr
 ## 🚀 Features
 
 - AI-powered deepfake detection
-- User-friendly Gradio interface along with FastAPI application
+- FastAPI application hosted on HF Spaces
 - Comprehensive ML pipeline with MLflow and DVC
 
 ## 🛠️ Tech Stack
@@ -30,7 +30,7 @@ In the age of deepfakes, seeing is no longer believing. But even if you can't tr
 - **Image and Video processing**: OpenCV, Mediapipe
 - **Visualization**: Plotly
 - **MLOps**: MLflow, DVC
-- **UI**: Gradio and FastAPI
+- **UI**: FastAPI
 - **Deployment**: HuggingFace Spaces
 
 ## 🏗️ Project Structure

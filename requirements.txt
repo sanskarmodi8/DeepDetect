@@ -4,11 +4,9 @@ torchvision
 numpy
 scikit-learn
 pandas
-opencv-python
+opencv-python-headless
 pillow
-tensorflow
 mediapipe
-dlib
 
 # Machine Learning Workflow, pipelines, Model Management, env, and Configuration
 mlflow
@@ -17,7 +15,6 @@ dvc
 python-dotenv
 
 # User Interface
-gradio
 fastapi
 uvicorn
 
