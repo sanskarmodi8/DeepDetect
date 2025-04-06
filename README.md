@@ -5,8 +5,7 @@
 In the age of deepfakes, seeing is no longer believing. But even if you can't trust your eyes, you can trust us.
 <br/>
 
-[DeepDetect](https://deepsight-f7b7g8grc3czg7gq.centralindia-01.azurewebsites.net/) is an AI Powered Application to help you see the reality.
-<br/>
+[DeepDetect](https://deepsight-f7b7g8grc3czg7gq.centralus-01.azurewebsites.net/) is an AI Powered Application to help you see the reality.
 <br/>
 
 <br/>
