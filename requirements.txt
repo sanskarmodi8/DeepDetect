@@ -15,8 +15,6 @@ dvc
 python-dotenv
 
 # User Interface
-fastapi
-uvicorn
 gradio
 
 # Code Formatting
@@ -33,5 +31,3 @@ notebook
 python-box
 tqdm
 ensure
-
--e .

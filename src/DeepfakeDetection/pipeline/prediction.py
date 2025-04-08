@@ -1,17 +1,20 @@
 import cv2
 import mediapipe as mp
-import mlflow
 import numpy as np
 import torch
-import torch.nn.functional as F
+import mlflow
 from dotenv import load_dotenv
+import torch.nn.functional as F
 from torchvision import transforms
-
-from DeepfakeDetection.constants import PARAMS_FILE_PATH
-from DeepfakeDetection.utils.common import read_yaml
+from pathlib import Path
+from common import read_yaml
+import os
+os.environ['MPLCONFIGDIR'] = '/tmp'
 
 load_dotenv()
 
+
+PARAMS_FILE_PATH = Path("params.yaml")
 
 class Prediction:
     def __init__(self):
@@ -22,7 +25,6 @@ class Prediction:
         self.model = mlflow.pytorch.load_model(
             "runs:/6199e90b978f48fc868c514f78539d41/model", map_location=self.device
         )
-
         self.model.eval()
         params = read_yaml(PARAMS_FILE_PATH)
         self.expansion_factor = params.expansion_factor
@@ -284,19 +286,19 @@ class Prediction:
     def predict(self, video, seq_length=None):
         """
         Predict whether a video is real or fake.
-
+    
         Args:
             video (str): Path to the video file
             seq_length (int, optional): Number of frames to use
-
+    
         Returns:
             tuple: (prediction_result, gradcam_image, classification_details)
         """
         frames, raw_frames = self.preprocess(video, seq_length)
-
+    
         if not frames:
             return "No faces detected in the video", None, None
-
+    
         # Prepare input tensor for the model
         target_seq_length = (
             seq_length if seq_length is not None else self.default_frame_count
@@ -304,15 +306,19 @@ class Prediction:
         input_tensor = torch.stack(frames).unsqueeze(0)
         input_tensor = input_tensor.view(1, target_seq_length, 3, *self.resolution)
         input_tensor = input_tensor.to(self.device)
-        input_tensor.requires_grad_()
-
-        # Forward pass to get feature maps and final output
-        fmap, attn_wts, output = self.model(input_tensor)
+        
+        # Remove the torch.no_grad() context to allow gradient computation
+        input_tensor.requires_grad_(True)
+        
+        # Forward pass with gradient tracking enabled
+        fmap, attn_wts, logits = self.model(input_tensor)
+        
+        # Register hook for Grad-CAM
         fmap.register_hook(self.save_gradients)
-
+    
         # Get predictions for all classes
-        class_probs = F.softmax(output, dim=1).detach().cpu().numpy()[0]
-
+        class_probs = F.softmax(logits, dim=1).detach().cpu().numpy()[0]
+    
         # Get the predicted class
         predicted_class_idx = np.argmax(class_probs)
         predicted_class = (
@@ -321,7 +327,7 @@ class Prediction:
             else "Unknown"
         )
         prediction = "Deepfake" if predicted_class_idx > 0 else "Real"
-
+    
         # Format confidence values to 2 decimal places
         confidence_class = round(class_probs[predicted_class_idx] * 100, 2)
         confidence_deepfake_real = (
@@ -330,31 +336,29 @@ class Prediction:
             else round(class_probs[0] * 100, 2)
         )
         prediction_string = f"{prediction} {confidence_deepfake_real:.2f}% Confidence"
-
-        # Create detailed classification results
-        classification_details = (
-            {
-                "Deepfake type": predicted_class,
-                "confidence(%)": f"{confidence_class:.2f}",
+    
+        # Create detailed classification results as a dictionary
+        if prediction == "Deepfake":
+            # For deepfakes, show probabilities for each deepfake type
+            classification_details = {
+                self.classes[i]: float(class_probs[i]) for i in range(1, len(self.classes))
             }
-            if prediction == "Deepfake"
-            else {
-                "Deepfake type": "None (Real video)",
-                "confidence(%)": f"{confidence_class:.2f}",
+        else:
+            # For real videos, just show real confidence
+            classification_details = {
+                "Real": float(class_probs[0])
             }
-        )
-
+    
         # Backpropagate for Grad-CAM
         self.model.zero_grad()
-        output[0, predicted_class_idx].backward()
+        logits[0, predicted_class_idx].backward()
         grads = self.gradients
-
+    
         # Generate Grad-CAM visualization for the best frame
         if raw_frames:
-            # Choose middle frame for visualization
             middle_idx = len(raw_frames) // 2
             gradcam_image = self.generate_gradcam(fmap, raw_frames[middle_idx], grads)
         else:
             gradcam_image = None
-
+    
         return prediction_string, gradcam_image, classification_details
