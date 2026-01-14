@@ -14,8 +14,11 @@ pyYAML
 dvc
 python-dotenv
 
-# User Interface
+# User Interface and api
 gradio
+fastapi
+uvicorn[standard]
+python-multipart
 
 # Code Formatting
 black

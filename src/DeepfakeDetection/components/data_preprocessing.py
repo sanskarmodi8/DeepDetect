@@ -1,3 +1,5 @@
+"""Data Preprocessing component."""
+
 import os
 from abc import ABC, abstractmethod
 from typing import List, Tuple
@@ -61,7 +63,7 @@ class OpenCVFrameExtraction(FrameExtractionStrategy):
             success, image = vidobj.read()
 
 
-class MediaPipeStrategy:
+class MediaPipeStrategy(FaceDetectionStrategy):
     def __init__(self, min_detection_confidence=0.6, model_selection=0):
         self.min_detection_confidence = min_detection_confidence
         self.model_selection = model_selection
@@ -71,6 +73,7 @@ class MediaPipeStrategy:
         )
 
     def _get_box(self, detection, image_shape):
+        """Extract bounding box coordinates given the detection."""
         h, w, _ = image_shape
         bboxC = detection.location_data.relative_bounding_box
 
@@ -90,6 +93,15 @@ class MediaPipeStrategy:
     def detect_faces(
         self, images: List[np.ndarray]
     ) -> List[List[Tuple[int, int, int, int]]]:
+        """
+        Detect faces from a given array frames.
+
+        Args:
+            images (np.ndarray): Array of frames from a video.
+
+        Yields:
+            List of detected face locations.
+        """
         all_faces = []
 
         for img in images:
@@ -221,7 +233,7 @@ class DataPreprocessing:
         Returns:
             np.ndarray: The color jittered image with the same shape as the input image.
         """
-        rng = np.random.default_rng(seed=42)
+        rng = np.random.default_rng()
 
         # Randomly adjust brightness, contrast, and saturation
         hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
@@ -339,13 +351,14 @@ class DataPreprocessing:
         return train_files_final, val_files, test_files
 
     def run(self):
-        # Gather files from manipulated and original video directories
         """
         Runs the data preprocessing pipeline by gathering files from the manipulated and original directories,
         splitting them into train, validation, and test sets, and then processing and saving each split.
 
         :return: None
         """
+
+        # Gather files from manipulated and original video directories
         files = [
             (folder, file)
             for folder in os.listdir(self.config.data_path)

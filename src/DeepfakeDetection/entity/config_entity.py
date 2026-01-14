@@ -1,3 +1,5 @@
+"""Entity classes for the configurations of each stage in the pipeline."""
+
 from dataclasses import dataclass
 from pathlib import Path
 

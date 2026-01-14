@@ -1,3 +1,5 @@
+"""Integration of Data Ingestion component into the pipeline."""
+
 from DeepfakeDetection import logger
 from DeepfakeDetection.components.data_ingestion import DataIngestion
 from DeepfakeDetection.config.configuration import ConfigurationManager

@@ -1,4 +1,7 @@
+"""Model Training component."""
+
 import os
+import random
 from abc import ABC, abstractmethod
 
 import cv2
@@ -7,8 +10,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from dotenv import load_dotenv
-from PIL import Image
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.metrics import f1_score, precision_score, recall_score
 from sklearn.utils.class_weight import compute_class_weight
 from torch import nn
 from torch.cuda.amp import GradScaler, autocast
@@ -55,7 +57,6 @@ class VideoDataset(Dataset):
         Returns:
             tuple: A tuple containing the frames of the video and the label.
         """
-        rng = np.random.default_rng(seed=42)
         video_path = self.video_paths[idx]
         label = self.labels[idx]
 
@@ -77,7 +78,7 @@ class VideoDataset(Dataset):
 
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if frame_count > self.sequence_length:
-            start = rng.integers(0, frame_count - self.sequence_length)
+            start = random.randint(0, frame_count - self.sequence_length)
             cap.set(cv2.CAP_PROP_POS_FRAMES, start)
 
         for _ in range(self.sequence_length):
@@ -272,8 +273,11 @@ class StandardTrainingStrategy(TrainingStrategy):
         correct = 0
         total = 0
 
+        optimizer.zero_grad(set_to_none=True)
         for i, (inputs, labels) in enumerate(tqdm(dataloader, desc="Training")):
-            inputs, labels = inputs.to(device), labels.to(device)
+            inputs, labels = inputs.to(device, non_blocking=True), labels.to(
+                device, non_blocking=True
+            )
 
             with autocast():
                 _, _, outputs = model(inputs)
@@ -295,7 +299,7 @@ class StandardTrainingStrategy(TrainingStrategy):
         epoch_acc = correct / total
         return epoch_loss, epoch_acc
 
-    def validate(self, model, dataloader, device):
+    def validate(self, model, dataloader, device, criterion):
         """
         Validates the model on the given dataloader and returns the validation loss, accuracy, precision, recall and f1 score.
 
@@ -314,8 +318,6 @@ class StandardTrainingStrategy(TrainingStrategy):
         total = 0
         all_preds = []
         all_labels = []
-
-        criterion = nn.CrossEntropyLoss()
 
         with torch.no_grad():
             for inputs, labels in tqdm(dataloader, desc="Validating"):
@@ -584,10 +586,10 @@ class ModelTraining:
                 model, self.train_loader, criterion, optimizer, self.device, scaler
             )
             val_loss, val_acc, precision, recall, f1 = self.training_strategy.validate(
-                model, self.val_loader, self.device
+                model, self.val_loader, self.device, criterion
             )
 
-            scheduler.step(val_loss)
+            scheduler.step()
 
             logger.info(f"Epoch {epoch+1}/{self.config.epochs}")
             logger.info(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}")

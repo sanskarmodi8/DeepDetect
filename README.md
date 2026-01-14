@@ -5,6 +5,11 @@
 
 [**DeepDetect**](https://huggingface.co/spaces/SanskarModi/deepdetect) is an AI-powered application that helps you uncover the truth behind manipulated media.
 
+> 🔹 **Deployment Note:**  
+> The public Hugging Face Space uses a **Gradio interface** for interactive demos and explainability.  
+> A **FastAPI backend** is also included in this repository for production-style API usage and integration.
+
+
 <br/>
 
 ![Demo](.github_assets/demo.png)
@@ -27,6 +32,7 @@
 - 🔍 Deepfake detection using AI
 - 🖼️ Visual explanation via heatmaps
 - 🎛️ Gradio-powered user interface
+- ⚡ FastAPI backend for scalable inference (not used in Hugging Face Space)
 - ⚙️ End-to-end ML pipeline with MLflow & DVC integration
 
 ---
@@ -89,10 +95,35 @@ DeepDetect/
    sudo apt install cmake
    ```
 5. (Optional) Install Docker for containerized deployment.
-6. Download the [FaceForensics++](https://github.com/ondyari/FaceForensics) dataset.  
+6. Download the [FaceForensics++](https://github.com/ondyari/FaceForensics) dataset (see below).  
    Update the `source_data` path in `config/config.yaml` to point to your local data directory.
 
 ---
+
+## 📂 Dataset: FaceForensics++
+
+This project uses the **FaceForensics++** dataset.
+
+To obtain it:
+
+1. Visit the official repository:
+   [https://github.com/ondyari/FaceForensics](https://github.com/ondyari/FaceForensics)
+2. Fill out the dataset request form
+3. After approval, you will receive:
+
+   * Download credentials
+   * An official download script
+4. Use the provided script to download the data locally
+5. Update the dataset path in:
+
+   ```
+   config/config.yaml
+   ```
+
+⚠️ **The dataset is not included in this repository and cannot be redistributed.**
+
+---
+
 
 ## 🧪 Usage
 
@@ -125,16 +156,34 @@ python src/DeepfakeDetection/pipeline/stage_03_model_training.py
 python src/DeepfakeDetection/pipeline/stage_04_model_evaluation.py
 ```
 
-### Launch Gradio App
+### Launch App
+
+### 🎛️ Gradio Demo (Hugging Face / Local UI)
 
 ```bash
 python app.py
 ```
 
+### ⚡ FastAPI Backend (Local / Production)
+
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
 > 🔐 **Note:**  
-> By default, the prediction pipeline loads the model from MLflow (logged during training).  
+> By default, the prediction pipeline loads the model from MLflow (logged during training).
+> Ensure MLflow initialization is **enabled** in:
+   * `stage_03_model_training.py`
+   * `stage_04_model_evaluation.py`
 > Set up your `.env` file with MLflow credentials at the project root, and make sure you’ve executed `dvc repro`.  
->  
+>```env
+>MLFLOW_TRACKING_URI=your_mlflow_tracking_uri
+>MLFLOW_TRACKING_PASSWORD=your_mlflow_pass
+>```
+> Update `prediction.py` to load **your generated MLflow run**, for example:
+>```python
+>mlflow.pytorch.load_model("runs:/<your_run_id>/model")
+>```
 > **Alternatively**, if you don’t want to use MLflow, modify the loading logic in `prediction.py` to use the trained model (after running the complete pipeline) located at:
 > ```
 > /artifacts/model_training

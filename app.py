@@ -1,10 +1,18 @@
+"""Gradio application code in accordance with HF Deployed space"""
+
+import cv2
 import gradio as gr
 import numpy as np
-import cv2
-from prediction import Prediction
+
+try:
+    from prediction import Prediction  # HF layout
+except ImportError:
+    from src.DeepfakeDetection.pipeline.prediction import Prediction  # local
+
 
 # Initialize the Prediction class
 predictor = Prediction()
+
 
 def inference(video):
     """
@@ -25,6 +33,7 @@ def inference(video):
         gradcam_image = np.zeros((256, 256, 3), dtype=np.uint8)  # fallback image
 
     return prediction, gradcam_image, classification_details
+
 
 # Define Gradio interface
 demo = gr.Interface(

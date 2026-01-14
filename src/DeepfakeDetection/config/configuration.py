@@ -1,3 +1,5 @@
+"""Final Configuration for every stage."""
+
 from DeepfakeDetection.constants import CONFIG_FILE_PATH, PARAMS_FILE_PATH
 from DeepfakeDetection.entity.config_entity import (
     DataIngestionConfig,

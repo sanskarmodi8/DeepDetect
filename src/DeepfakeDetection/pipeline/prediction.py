@@ -1,20 +1,29 @@
+"""Inference Prediction logic in accordance with HF Deployed space."""
+
+import os
+from pathlib import Path
+
 import cv2
 import mediapipe as mp
+import mlflow
 import numpy as np
 import torch
-import mlflow
-from dotenv import load_dotenv
 import torch.nn.functional as F
+
+try:
+    from common import read_yaml  # HF layout
+except ImportError:
+    from src.DeepfakeDetection.utils.common import read_yaml  # local
+from dotenv import load_dotenv
 from torchvision import transforms
-from pathlib import Path
-from common import read_yaml
-import os
-os.environ['MPLCONFIGDIR'] = '/tmp'
+
+os.environ["MPLCONFIGDIR"] = "/tmp"
 
 load_dotenv()
 
 
 PARAMS_FILE_PATH = Path("params.yaml")
+
 
 class Prediction:
     def __init__(self):
@@ -108,7 +117,7 @@ class Prediction:
         Returns:
             np.ndarray: The color jittered image
         """
-        rng = np.random.default_rng(seed=42)
+        rng = np.random.default_rng()
 
         # Convert to HSV for easier manipulation
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -286,19 +295,19 @@ class Prediction:
     def predict(self, video, seq_length=None):
         """
         Predict whether a video is real or fake.
-    
+
         Args:
             video (str): Path to the video file
             seq_length (int, optional): Number of frames to use
-    
+
         Returns:
             tuple: (prediction_result, gradcam_image, classification_details)
         """
         frames, raw_frames = self.preprocess(video, seq_length)
-    
+
         if not frames:
             return "No faces detected in the video", None, None
-    
+
         # Prepare input tensor for the model
         target_seq_length = (
             seq_length if seq_length is not None else self.default_frame_count
@@ -306,19 +315,19 @@ class Prediction:
         input_tensor = torch.stack(frames).unsqueeze(0)
         input_tensor = input_tensor.view(1, target_seq_length, 3, *self.resolution)
         input_tensor = input_tensor.to(self.device)
-        
+
         # Remove the torch.no_grad() context to allow gradient computation
         input_tensor.requires_grad_(True)
-        
+
         # Forward pass with gradient tracking enabled
         fmap, attn_wts, logits = self.model(input_tensor)
-        
+
         # Register hook for Grad-CAM
         fmap.register_hook(self.save_gradients)
-    
+
         # Get predictions for all classes
         class_probs = F.softmax(logits, dim=1).detach().cpu().numpy()[0]
-    
+
         # Get the predicted class
         predicted_class_idx = np.argmax(class_probs)
         predicted_class = (
@@ -327,7 +336,7 @@ class Prediction:
             else "Unknown"
         )
         prediction = "Deepfake" if predicted_class_idx > 0 else "Real"
-    
+
         # Format confidence values to 2 decimal places
         confidence_class = round(class_probs[predicted_class_idx] * 100, 2)
         confidence_deepfake_real = (
@@ -336,29 +345,28 @@ class Prediction:
             else round(class_probs[0] * 100, 2)
         )
         prediction_string = f"{prediction} {confidence_deepfake_real:.2f}% Confidence"
-    
+
         # Create detailed classification results as a dictionary
         if prediction == "Deepfake":
             # For deepfakes, show probabilities for each deepfake type
             classification_details = {
-                self.classes[i]: float(class_probs[i]) for i in range(1, len(self.classes))
+                self.classes[i]: float(class_probs[i])
+                for i in range(1, len(self.classes))
             }
         else:
             # For real videos, just show real confidence
-            classification_details = {
-                "Real": float(class_probs[0])
-            }
-    
+            classification_details = {"Real": float(class_probs[0])}
+
         # Backpropagate for Grad-CAM
         self.model.zero_grad()
         logits[0, predicted_class_idx].backward()
         grads = self.gradients
-    
+
         # Generate Grad-CAM visualization for the best frame
         if raw_frames:
             middle_idx = len(raw_frames) // 2
             gradcam_image = self.generate_gradcam(fmap, raw_frames[middle_idx], grads)
         else:
             gradcam_image = None
-    
+
         return prediction_string, gradcam_image, classification_details

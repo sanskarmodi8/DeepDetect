@@ -1,3 +1,5 @@
+# Base config for all the stages of the pipeline
+
 artifacts_root: artifacts
 
 data_ingestion:

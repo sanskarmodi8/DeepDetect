@@ -1,4 +1,5 @@
-import multiprocessing
+"""Integration of Evaluation component into the pipeline."""
+
 from multiprocessing import freeze_support
 
 from DeepfakeDetection import logger

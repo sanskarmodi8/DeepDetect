@@ -1,3 +1,5 @@
+"""Data Ingestion component."""
+
 import os
 import random
 import shutil

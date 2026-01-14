@@ -1,3 +1,5 @@
+"""Common utilities used throughout the project."""
+
 import json
 import os
 from pathlib import Path

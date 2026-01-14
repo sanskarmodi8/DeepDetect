@@ -1,3 +1,5 @@
+"""Integration of Data Preprocessing component into the pipeline."""
+
 from DeepfakeDetection import logger
 from DeepfakeDetection.components.data_preprocessing import DataPreprocessing
 from DeepfakeDetection.config.configuration import ConfigurationManager
