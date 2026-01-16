@@ -1,11 +1,11 @@
 # Project DeepDetect
 
-> **In the age of deepfakes, seeing is no longer believing.**  
-> But even if you can't trust your eyes, you can trust us.
+**In the age of deepfakes, seeing is no longer believing.**  
+But even if you can't trust your eyes, you can trust us.
 
 [**DeepDetect**](https://huggingface.co/spaces/SanskarModi/deepdetect) is an AI-powered application that helps you uncover the truth behind manipulated media.
 
-> 🔹 **Deployment Note:**  
+> **Deployment Note:**  
 > The public Hugging Face Space uses a **Gradio interface** for interactive demos and explainability.  
 > A **FastAPI backend** is also included in this repository for production-style API usage and integration.
 
